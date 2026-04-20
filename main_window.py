@@ -13,7 +13,7 @@ import sys
 from collections import OrderedDict
 
 from PySide6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve, QThread
-from PySide6.QtGui import QColor, QFont, QPixmap, QDesktopServices
+from PySide6.QtGui import QColor, QFont, QPixmap, QDesktopServices, QIcon
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QStackedWidget, QScrollArea, QSizePolicy,
@@ -477,7 +477,6 @@ class ReuseAnalysisWindow(QMainWindow):
             ("settings_font_btn",   "font"),
             ("settings_reset_btn",  "reset"),
             ("con_open_output_btn", "link"),
-            ("theme_btn",           "settings"),
         ]:
             if hasattr(self, attr):
                 getattr(self, attr).setIcon(self.icons.icon(icon_name, 15 if attr != "theme_btn" else 18))
@@ -593,7 +592,8 @@ class ReuseAnalysisWindow(QMainWindow):
         if hasattr(self, "view_mode_chip"):
             self.view_mode_chip.setVisible(False)
 
-        # ── Reset diff page ───────────────────────────────────────────────────
+        # ── Reset diff page (including raw data so filters stay empty) ────────
+        self._diff_raw_data = []
         self._clear_diff()
 
         # ── Reset report fields ───────────────────────────────────────────────
@@ -709,23 +709,16 @@ class ReuseAnalysisWindow(QMainWindow):
         header_layout.addWidget(header_left)
         header_layout.addStretch()
 
-        self.theme_btn = IconTextButton("🌙 Dark", self.icons.icon("settings", 18))
+        self.theme_btn = IconTextButton("🌙 Dark", QIcon())
         self.theme_btn.setObjectName("pickerButton")
         self.theme_btn.setMinimumWidth(118)
         self.theme_btn.setFixedHeight(38)
         self.theme_btn.clicked.connect(self.toggle_theme)
 
-        self.reset_all_btn = QPushButton("🔄  Reset")
-        self.reset_all_btn.setObjectName("resetAllBtn")
+        self.reset_all_btn = IconTextButton("🔄 Reset", QIcon())
+        self.reset_all_btn.setObjectName("pickerButton")
+        self.reset_all_btn.setMinimumWidth(118)
         self.reset_all_btn.setFixedHeight(38)
-        self.reset_all_btn.setMinimumWidth(100)
-        self.reset_all_btn.setCursor(Qt.PointingHandCursor)
-        self.reset_all_btn.setStyleSheet(
-            "QPushButton#resetAllBtn { background: #B71C1C; color: #FFFFFF; border: 2px solid #7F0000;"
-            " border-radius: 8px; font-size: 12px; font-weight: 800; padding: 0px 14px; }"
-            "QPushButton#resetAllBtn:hover { background: #C62828; }"
-            "QPushButton#resetAllBtn:pressed { background: #7F0000; }"
-        )
         self.reset_all_btn.clicked.connect(self.reset_all)
 
         header_layout.addWidget(self.theme_btn)
@@ -748,6 +741,105 @@ class ReuseAnalysisWindow(QMainWindow):
         create_complexity_page(self)
         create_help_page(self)
         create_settings_page(self)
+
+        # ── Global loading overlay (covers entire window) ─────────────────────
+        self._setup_global_overlay()
+
+    def _setup_global_overlay(self):
+        """Create a full-window dim + spinner overlay parented to centralWidget."""
+        central = self.centralWidget()
+
+        self._global_overlay = QWidget(central)
+        self._global_overlay.setObjectName("globalOverlay")
+        self._global_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+        self._global_overlay.setVisible(False)
+
+        # Semi-transparent black dim
+        self._global_overlay_dim = QLabel(self._global_overlay)
+        self._global_overlay_dim.setStyleSheet(
+            "background: rgba(0,0,0,150); border-radius: 0px;"
+        )
+
+        # Centered spinner card
+        spinner_card = QFrame(self._global_overlay)
+        spinner_card.setObjectName("globalSpinnerCard")
+        spinner_card.setFixedSize(160, 160)
+        spinner_card.setStyleSheet(
+            "QFrame#globalSpinnerCard {"
+            "  background: rgba(255,255,255,235);"
+            "  border-radius: 18px;"
+            "}"
+        )
+        sc_layout = QVBoxLayout(spinner_card)
+        sc_layout.setContentsMargins(16, 16, 16, 16)
+        sc_layout.setSpacing(10)
+        sc_layout.setAlignment(Qt.AlignCenter)
+
+        self._global_spinner_lbl = QLabel("⠋")
+        self._global_spinner_lbl.setAlignment(Qt.AlignCenter)
+        self._global_spinner_lbl.setStyleSheet(
+            "font-size: 42px; color: #1565C0; background: transparent;"
+        )
+        self._global_loading_txt = QLabel("Please wait…")
+        self._global_loading_txt.setAlignment(Qt.AlignCenter)
+        self._global_loading_txt.setStyleSheet(
+            "font-size: 13px; font-weight: 700; color: #333; background: transparent;"
+        )
+        sc_layout.addWidget(self._global_spinner_lbl)
+        sc_layout.addWidget(self._global_loading_txt)
+        self._global_spinner_card = spinner_card
+
+        _FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        self._global_spinner_idx = 0
+        self._global_spinner_timer = QTimer(self)
+        self._global_spinner_timer.setInterval(80)
+
+        def _tick():
+            self._global_spinner_idx = (self._global_spinner_idx + 1) % len(_FRAMES)
+            self._global_spinner_lbl.setText(_FRAMES[self._global_spinner_idx])
+
+        self._global_spinner_timer.timeout.connect(_tick)
+
+        def _resize_global_overlay():
+            w, h = central.width(), central.height()
+            self._global_overlay.setGeometry(0, 0, w, h)
+            self._global_overlay_dim.setGeometry(0, 0, w, h)
+            cx = (w - spinner_card.width()) // 2
+            cy = (h - spinner_card.height()) // 2
+            spinner_card.move(cx, cy)
+
+        self._global_overlay.resizeEvent = lambda e: _resize_global_overlay()
+        _orig_resize = central.resizeEvent if hasattr(central, "resizeEvent") else None
+
+        def _central_resize(e):
+            _resize_global_overlay()
+            if _orig_resize:
+                _orig_resize(e)
+            else:
+                e.accept()
+
+        central.resizeEvent = _central_resize
+
+    def show_loading(self, message="Please wait…"):
+        """Show the global full-window loading overlay."""
+        central = self.centralWidget()
+        w, h = central.width(), central.height()
+        self._global_overlay.setGeometry(0, 0, w, h)
+        self._global_overlay_dim.setGeometry(0, 0, w, h)
+        cx = (w - self._global_spinner_card.width()) // 2
+        cy = (h - self._global_spinner_card.height()) // 2
+        self._global_spinner_card.move(cx, cy)
+        self._global_loading_txt.setText(message)
+        self._global_overlay.raise_()
+        self._global_overlay.setVisible(True)
+        self._global_spinner_timer.start()
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+    def hide_loading(self):
+        """Hide the global loading overlay."""
+        self._global_spinner_timer.stop()
+        self._global_overlay.setVisible(False)
 
     # ── page navigation ───────────────────────────────────────────────────────
     def make_scroll_page(self, content_widget: QWidget) -> QScrollArea:
@@ -905,7 +997,11 @@ class ReuseAnalysisWindow(QMainWindow):
             QMessageBox.critical(self, "Load Error", str(e))
 
     def on_source_changed(self, _index):
-        self.load_selected_source()
+        self.show_loading("Loading source…")
+        try:
+            self.load_selected_source()
+        finally:
+            self.hide_loading()
 
     # ── tree population ───────────────────────────────────────────────────────
     def populate_view_tree(self):
@@ -1289,7 +1385,7 @@ class ReuseAnalysisWindow(QMainWindow):
             self.sidebar.hide()
             self.header.hide()
             self._diff_left_panel.hide()
-            self._diff_fs_btn.setText("⊠  Exit Fullscreen")
+            self._diff_fs_btn.setText("Exit Fullscreen")
             # Hide filter buttons and clear button in fullscreen
             if hasattr(self, "_diff_filter_icon_lbl"):
                 self._diff_filter_icon_lbl.setVisible(False)
@@ -1558,8 +1654,7 @@ class ReuseAnalysisWindow(QMainWindow):
         # Show submitting state
         self.ref_submit_btn.setEnabled(False)
         self.ref_submit_btn.setText("Submitting...")
-        from PySide6.QtWidgets import QApplication
-        QApplication.processEvents()
+        self.show_loading("Scanning source folders…")
 
         try:
             # Fix 2: full reset before loading new data
@@ -1577,11 +1672,13 @@ class ReuseAnalysisWindow(QMainWindow):
 
             ref_text = "\n".join(ref_folders) or "No reference folders selected"
             fn_text  = "\n".join(function_list) or "No function list selected"
+            self.hide_loading()
             QMessageBox.information(self, "Success",
                 f"Reference data loaded successfully.\n\nTarget Base Folder:\n{target_root}\n\n"
                 f"Reference Base Folders:\n{ref_text}\n\nFunction List:\n{fn_text}\n\n"
                 f"Dropdown Sources: {len(entries)}")
         finally:
+            self.hide_loading()
             self.ref_submit_btn.setEnabled(True)
             self.ref_submit_btn.setText("Submit")
 
@@ -1660,6 +1757,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.con_submit_btn.setEnabled(False)
         self.con_submit_btn.setText("Submitting...")
         self.con_output_link_field.clear_selection()
+        self.show_loading("Processing consolidated data…")
 
         self.con_thread = QThread(parent=self)
         self.con_worker = ConsolidatedWorker(
@@ -1681,6 +1779,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.con_thread.start()
 
     def on_consolidated_finished(self, result: dict):
+        self.hide_loading()
         self.con_submit_btn.setEnabled(True)
         self.con_submit_btn.setText("Submit")
         self.con_output_link_field.set_output(result["output_file"])
@@ -1694,6 +1793,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.con_worker = None; self.con_thread = None
 
     def on_consolidated_error(self, message: str):
+        self.hide_loading()
         self.con_submit_btn.setEnabled(True)
         self.con_submit_btn.setText("Submit")
         QMessageBox.critical(self, "Processing Error", message)
@@ -1799,6 +1899,7 @@ class ReuseAnalysisWindow(QMainWindow):
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Starting")
             self.report_summary_chips["result"].set_value("Pending")
+        self.show_loading("Generating report…")
 
         import shutil as _shutil
         with SCAN_CACHE_LOCK:
@@ -1938,6 +2039,7 @@ class ReuseAnalysisWindow(QMainWindow):
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Starting")
             self.report_summary_chips["result"].set_value("Pending")
+        self.show_loading("Generating HTML report…")
 
         import shutil as _shutil
         with SCAN_CACHE_LOCK:
@@ -2041,6 +2143,7 @@ class ReuseAnalysisWindow(QMainWindow):
             self._set_report_progress(100, "HTML save cancelled")
             self.report_generate_html_btn.setEnabled(True)
             self.report_generate_html_btn.setText("Generate HTML Report")
+            self.hide_loading()
             return
         try:
             html_path = self._write_html_from_excel(out_excel, save_path=save_path)
@@ -2061,6 +2164,7 @@ class ReuseAnalysisWindow(QMainWindow):
             self.report_summary_chips["phase"].set_value("Completed")
             self.report_summary_chips["result"].set_value("HTML ready")
         self._report_append_log(f"✓ HTML Report: {html_path}")
+        self.hide_loading()
         # Auto-open the HTML report in the default browser
         from PySide6.QtCore import QUrl
         QDesktopServices.openUrl(QUrl.fromLocalFile(html_path))
@@ -2085,11 +2189,14 @@ class ReuseAnalysisWindow(QMainWindow):
         )
         if not save_path:
             return
+        self.show_loading("Generating HTML report…")
         try:
             html_path = self._write_html_from_excel(path, save_path=save_path)
         except Exception as exc:
+            self.hide_loading()
             QMessageBox.critical(self, "HTML Report Error", f"Failed to generate HTML:\n{exc}")
             return
+        self.hide_loading()
         self._last_complexity_html = html_path
         QMessageBox.information(self, "HTML Report Ready",
             f"HTML report saved successfully.\n\nFile:\n{html_path}")
@@ -2363,6 +2470,7 @@ class ReuseAnalysisWindow(QMainWindow):
         return html_path
 
     def _on_report_error_html(self, msg: str):
+        self.hide_loading()
         self._report_append_log(f"ERROR: {msg}")
         self.report_phase_label.setText("⚠ Error")
         self.report_generate_html_btn.setEnabled(True)
@@ -2391,10 +2499,12 @@ class ReuseAnalysisWindow(QMainWindow):
             self.report_summary_chips["phase"].set_value("Completed")
             self.report_summary_chips["result"].set_value("Excel ready")
         self._report_append_log(f"✓ Report: {out_file}")
+        self.hide_loading()
         QMessageBox.information(self, "Report Ready",
             f"FuncAtlas report generated successfully.\n\nFile:\n{out_file}")
 
     def _on_report_error(self, msg: str):
+        self.hide_loading()
         self._report_append_log(f"ERROR: {msg}")
         self.report_phase_label.setText("⚠ Error")
         self.report_status_label.setText("Error — see log below.")

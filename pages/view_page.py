@@ -1,13 +1,21 @@
 """pages/view_page.py — Function Explorer page."""
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer, QSize
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QFrame, QLabel, QHBoxLayout,
     QComboBox, QSplitter, QLineEdit, QTreeWidget, QTextEdit, QSizePolicy
 )
+from PySide6.QtGui import QMovie
 from ui.widgets import SectionTitle
 
 
 def create_view_page(win):
+    # ── Outer container holds page + overlay stacked ──────────────────────────
+    outer = QWidget()
+    outer.setObjectName("viewOuter")
+    outer_layout = QVBoxLayout(outer)
+    outer_layout.setContentsMargins(0, 0, 0, 0)
+    outer_layout.setSpacing(0)
+
     page = QWidget()
     page_layout = QVBoxLayout(page)
     page_layout.setContentsMargins(0, 0, 0, 0)
@@ -30,7 +38,6 @@ def create_view_page(win):
     win.source_combo.currentIndexChanged.connect(win.on_source_changed)
     win.source_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
-    # Mode chip — only visible when Function List (.xlsx) is loaded (point 4)
     win.view_mode_chip = QLabel()
     win.view_mode_chip.setObjectName("modeBadge")
     win.view_mode_chip.setFixedHeight(30)
@@ -53,7 +60,6 @@ def create_view_page(win):
     win.view_splitter.setChildrenCollapsible(False)
     win.view_splitter.setHandleWidth(12)
 
-    # Left panel
     left = QFrame()
     left.setObjectName("pageCard")
     left.setMinimumWidth(360)
@@ -79,7 +85,6 @@ def create_view_page(win):
     left_layout.addWidget(win.search_box)
     left_layout.addWidget(win.tree, 1)
 
-    # Right panel
     right = QFrame()
     right.setObjectName("pageCard")
     right.setMinimumWidth(360)
@@ -123,6 +128,96 @@ def create_view_page(win):
     win.view_splitter.setSizes([560, 780])
     page_layout.addWidget(win.view_splitter, 1)
 
-    scroll = win.make_scroll_page(page)
+    outer_layout.addWidget(page)
+
+    # ── Loading overlay (sits on top via absolute positioning) ────────────────
+    win._view_overlay = QWidget(outer)
+    win._view_overlay.setObjectName("viewOverlay")
+    win._view_overlay.setStyleSheet(
+        "QWidget#viewOverlay { background: rgba(0,0,0,0); }"
+    )
+    win._view_overlay.setVisible(False)
+    win._view_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+
+    # Dim backdrop label that fills the overlay
+    win._view_overlay_dim = QLabel(win._view_overlay)
+    win._view_overlay_dim.setStyleSheet(
+        "background: rgba(0, 0, 0, 140); border-radius: 0px;"
+    )
+
+    # Spinner card in the center
+    spinner_card = QFrame(win._view_overlay)
+    spinner_card.setObjectName("spinnerCard")
+    spinner_card.setFixedSize(140, 140)
+    spinner_card.setStyleSheet(
+        "QFrame#spinnerCard {"
+        "  background: rgba(255,255,255,230);"
+        "  border-radius: 16px;"
+        "}"
+    )
+    spinner_layout = QVBoxLayout(spinner_card)
+    spinner_layout.setContentsMargins(16, 16, 16, 16)
+    spinner_layout.setSpacing(10)
+    spinner_layout.setAlignment(Qt.AlignCenter)
+
+    # Animated spinner using unicode rotating chars driven by QTimer
+    win._view_spinner_lbl = QLabel("⠋")
+    win._view_spinner_lbl.setAlignment(Qt.AlignCenter)
+    win._view_spinner_lbl.setStyleSheet(
+        "font-size: 38px; color: #1565C0; background: transparent;"
+    )
+
+    loading_lbl = QLabel("Loading…")
+    loading_lbl.setAlignment(Qt.AlignCenter)
+    loading_lbl.setStyleSheet(
+        "font-size: 13px; font-weight: 700; color: #333; background: transparent;"
+    )
+
+    spinner_layout.addWidget(win._view_spinner_lbl)
+    spinner_layout.addWidget(loading_lbl)
+
+    win._spinner_card = spinner_card
+
+    # Braille spinner frames (smooth 10-frame rotation)
+    _FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+    win._spinner_frame_idx = 0
+
+    win._spinner_timer = QTimer(win)
+    win._spinner_timer.setInterval(80)
+
+    def _tick():
+        win._spinner_frame_idx = (win._spinner_frame_idx + 1) % len(_FRAMES)
+        win._view_spinner_lbl.setText(_FRAMES[win._spinner_frame_idx])
+
+    win._spinner_timer.timeout.connect(_tick)
+
+    def _resize_overlay():
+        """Keep overlay + dim filling the outer widget."""
+        w, h = outer.width(), outer.height()
+        win._view_overlay.setGeometry(0, 0, w, h)
+        win._view_overlay_dim.setGeometry(0, 0, w, h)
+        cx = (w - spinner_card.width()) // 2
+        cy = (h - spinner_card.height()) // 2
+        spinner_card.move(cx, cy)
+
+    win._view_overlay.resizeEvent = lambda e: _resize_overlay()
+    outer.resizeEvent = lambda e: (_resize_overlay(), e.accept())
+
+    def show_loading_overlay():
+        _resize_overlay()
+        win._view_overlay.raise_()
+        win._view_overlay.setVisible(True)
+        win._spinner_timer.start()
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
+
+    def hide_loading_overlay():
+        win._spinner_timer.stop()
+        win._view_overlay.setVisible(False)
+
+    win.show_view_loading = show_loading_overlay
+    win.hide_view_loading = hide_loading_overlay
+
+    scroll = win.make_scroll_page(outer)
     win.stack.addWidget(scroll)
     win.pages["view"] = scroll

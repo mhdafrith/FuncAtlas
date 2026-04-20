@@ -170,7 +170,7 @@ def create_diff_page(win):
 
     # ── Fullscreen button ─────────────────────────────────────────────────────
     win._diff_fullscreen = False
-    win._diff_fs_btn = QPushButton("⛶  Fullscreen")
+    win._diff_fs_btn = QPushButton("Fullscreen")
     win._diff_fs_btn.setObjectName("diffFsBtn")
     win._diff_fs_btn.setFixedSize(148, 34)
     win._diff_fs_btn.setCursor(Qt.PointingHandCursor)
@@ -183,20 +183,6 @@ def create_diff_page(win):
     win._diff_fs_btn.clicked.connect(win._toggle_diff_fullscreen)
     tb_layout.addWidget(win._diff_fs_btn)
 
-    # ── Clear button (hidden in fullscreen) ───────────────────────────────────
-    win._diff_clear_btn = QPushButton("🗑  Clear")
-    win._diff_clear_btn.setObjectName("diffClearBtn")
-    win._diff_clear_btn.setFixedSize(110, 34)
-    win._diff_clear_btn.setCursor(Qt.PointingHandCursor)
-    win._diff_clear_btn.setStyleSheet(
-        "QPushButton#diffClearBtn { background: #B71C1C; color: #FFFFFF; border: 2px solid #7F0000;"
-        " border-radius: 8px; font-size: 12px; font-weight: 800; padding: 0px 10px; }"
-        "QPushButton#diffClearBtn:hover { background: #C62828; }"
-        "QPushButton#diffClearBtn:pressed { background: #7F0000; }"
-    )
-    win._diff_clear_btn.clicked.connect(win._clear_diff)
-    tb_layout.addSpacing(6)
-    tb_layout.addWidget(win._diff_clear_btn)
     layout.addWidget(toolbar)
 
     # ── splitter: left tree | right tabs ─────────────────────────────────────
