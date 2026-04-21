@@ -114,9 +114,7 @@ class ComplexitySettingsDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Complexity & Compatibility Settings")
         self.setModal(True)
-        self.setMinimumSize(1200, 820)
-        self.resize(1440, 920)
-        self.setMinimumHeight(820)
+        self.setMinimumSize(1000, 580)
 
         self._weights = weights if weights is not None else [list(r) for r in self.DEFAULT_WEIGHTS]
         self._bands   = bands   if bands   is not None else [list(r) for r in self.DEFAULT_BANDS]
@@ -171,6 +169,12 @@ class ComplexitySettingsDialog(QDialog):
             ll = QVBoxLayout(left_frame)
             ll.setContentsMargins(0, 0, 0, 0)
             ll.setSpacing(8)
+
+            # Page-level title above the Weightage section
+            page_title = QLabel("Complexity Settings")
+            page_title.setObjectName("complexityPageTitle")
+            ll.addWidget(page_title)
+
             ll.addWidget(self._section_hdr(
                 "Weightage",
                 "One editable weight value for each C-language scenario"
@@ -352,7 +356,7 @@ class ComplexitySettingsDialog(QDialog):
                         cur_group = grp
                         sec_hdr = QFrame()
                         sec_hdr.setObjectName("compatSectionHdr")
-                        sec_hdr.setFixedHeight(18)
+                        sec_hdr.setFixedHeight(22)
                         sec_hl = QHBoxLayout(sec_hdr)
                         sec_hl.setContentsMargins(6, 1, 6, 1)
                         lbl = QLabel(grp)
@@ -361,7 +365,7 @@ class ComplexitySettingsDialog(QDialog):
                         col_vl.addWidget(sec_hdr)
 
                     row_w, badge = self._scenario_status_row(sc, sc in self._handled, local_row)
-                    row_w.setFixedHeight(26)
+                    row_w.setFixedHeight(30)
                     col_vl.addWidget(row_w)
                     self._status_btns[sc] = badge
                     local_row += 1
@@ -386,16 +390,15 @@ class ComplexitySettingsDialog(QDialog):
         outer.addWidget(shell)
         self._apply_styles()
 
-        # Compat-only: auto-fit to 92 % screen height
-        if self._show_compatibility and not self._show_complexity:
-            from PySide6.QtGui import QGuiApplication
-            screen = QGuiApplication.primaryScreen()
-            if screen:
-                sg = screen.availableGeometry()
-                h = int(sg.height() * 0.92)
-                w = min(int(sg.width() * 0.90), 1400)
-                self.resize(w, h)
-                self.setMinimumHeight(h)
+        # Both windows: same screen-relative size as the "perfect" compat window
+        from PySide6.QtGui import QGuiApplication
+        screen = QGuiApplication.primaryScreen()
+        if screen:
+            sg = screen.availableGeometry()
+            h = int(sg.height() * 0.78)
+            w = min(int(sg.width() * 0.88), 1380)
+            self.resize(w, h)
+            self.setMinimumSize(1000, 580)
 
     # ── Band Scale Preview ────────────────────────────────────────────────────
     def _build_band_preview(self) -> QFrame:
@@ -495,12 +498,13 @@ class ComplexitySettingsDialog(QDialog):
             hl.addWidget(lb, 1 if i == 0 else 0)
         return h
 
-    def _spin(self, val, w=80):
+    def _spin(self, val, w=82):
         sp = QSpinBox()
         sp.setObjectName("complexitySpinBox")
         sp.setRange(0, 9999)
         sp.setValue(val)
         sp.setFixedWidth(w)
+        sp.setFixedHeight(30)
         sp.setAlignment(Qt.AlignCenter)
         sp.setButtonSymbols(QAbstractSpinBox.NoButtons)
         return sp
@@ -509,18 +513,18 @@ class ComplexitySettingsDialog(QDialog):
         b = QPushButton(sym)
         if sym == "+":
             b.setObjectName("complexityStepPlusBtn")
-            b.setFixedSize(36, 36)
+            b.setFixedSize(40, 34)
         else:
             b.setObjectName("complexityStepBtn")
-            b.setFixedSize(32, 32)
+            b.setFixedSize(36, 34)
         return b
 
     def _stepper_row(self, label, val, idx):
         row = QFrame()
         row.setObjectName("complexityRowEven" if idx % 2 == 0 else "complexityRowOdd")
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(6, 2, 6, 2)
-        rl.setSpacing(8)
+        rl.setContentsMargins(8, 1, 8, 1)
+        rl.setSpacing(6)
         lb = QLabel(label)
         lb.setObjectName("complexityScenarioLabel")
         m = self._sbtn("\u2212")
@@ -538,8 +542,8 @@ class ComplexitySettingsDialog(QDialog):
         row = QFrame()
         row.setObjectName("complexityRowEven" if idx % 2 == 0 else "complexityRowOdd")
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(16, 8, 16, 8)
-        rl.setSpacing(8)
+        rl.setContentsMargins(10, 1, 10, 1)
+        rl.setSpacing(6)
 
         # Coloured left-edge indicator for the band level
         indicator = QFrame()
@@ -576,15 +580,15 @@ class ComplexitySettingsDialog(QDialog):
         row = QFrame()
         row.setObjectName("compatRowEven" if idx % 2 == 0 else "compatRowOdd")
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(10, 3, 10, 3)
+        rl.setContentsMargins(10, 2, 10, 2)
         rl.setSpacing(6)
 
         lb = QLabel(scenario)
-        lb.setObjectName("complexityScenarioLabel")
+        lb.setObjectName("compatScenarioLabel")
 
         badge = QPushButton()
         badge.setObjectName("statusBadgeHandled" if is_handled else "statusBadgeNotHandled")
-        badge.setFixedSize(80, 18)
+        badge.setFixedSize(88, 22)
         badge.setProperty("handled", is_handled)
         self._update_badge_text(badge, is_handled)
         badge.clicked.connect(lambda _, b=badge, s=scenario: self._toggle_status(b, s))
@@ -715,6 +719,10 @@ class ComplexitySettingsDialog(QDialog):
             QPushButton#complexityCloseBtn:hover { background: #E74C3C; }
 
             /* ── Section typography ── */
+            QLabel#complexityPageTitle {
+                color: white; font-size: 20px; font-weight: 900;
+                padding-bottom: 2px;
+            }
             QLabel#complexitySectionTitle { color: white; font-size: 15px; font-weight: 900; }
             QLabel#complexitySectionSub   { color: #8899AA; font-size: 11px; }
 
@@ -726,25 +734,26 @@ class ComplexitySettingsDialog(QDialog):
                 background: #162840; border-bottom: 1px solid #1D3347;
                 border-top-left-radius: 10px; border-top-right-radius: 10px;
             }
-            QLabel#complexityColHeader    { color: white; font-weight: 800; font-size: 12px; }
-            QFrame#complexityRowEven      { background: #101E2E; max-height: 26px; }
-            QFrame#complexityRowOdd       { background: #0D1B2A; max-height: 26px; }
-            QLabel#complexityScenarioLabel { color: #C8D8E8; font-size: 9px; }
+            QLabel#complexityColHeader    { color: white; font-weight: 800; font-size: 13px; }
+            QFrame#complexityRowEven      { background: #101E2E; min-height: 36px; max-height: 36px; }
+            QFrame#complexityRowOdd       { background: #0D1B2A; min-height: 36px; max-height: 36px; }
+            QLabel#complexityScenarioLabel { color: #C8D8E8; font-size: 12px; }
             QPushButton#complexityStepBtn {
                 background: #1A3050; color: #1E90FF; border: 1px solid #1D3347;
-                border-radius: 8px; font-size: 15px; font-weight: 900;
+                border-radius: 8px; font-size: 18px; font-weight: 900;
             }
             QPushButton#complexityStepBtn:hover { background: #1E90FF; color: white; }
             QPushButton#complexityStepPlusBtn {
                 background: #2ECC71; color: white; border: 2px solid #27AE60;
-                border-radius: 8px; font-size: 18px; font-weight: 900;
+                border-radius: 8px; font-size: 22px; font-weight: 900;
             }
             QPushButton#complexityStepPlusBtn:hover {
                 background: #58D68D; color: white; border-color: #2ECC71;
             }
             QSpinBox#complexitySpinBox {
-                background: #101E2E; color: white; border: 1px solid #1D3347;
-                border-radius: 8px; font-size: 13px; font-weight: 700; padding: 4px;
+                background: #162840; color: white; border: 1px solid #2A4060;
+                border-radius: 8px; font-size: 15px; font-weight: 700; padding: 4px;
+                min-height: 28px;
             }
             QLabel#complexityNote { color: #7A8FA0; font-size: 11px; }
             QScrollBar:vertical { background: #0D1B2A; width: 8px; border-radius: 4px; }
@@ -755,10 +764,10 @@ class ComplexitySettingsDialog(QDialog):
                 background: #0A1628; border: 1px solid #1D3347; border-radius: 10px;
             }
             QLabel#bandPreviewLevelLabel {
-                color: #C8D8E8; font-size: 11px; font-weight: 700;
+                color: #C8D8E8; font-size: 13px; font-weight: 700;
             }
             QLabel#bandPreviewRangeLabel {
-                color: #8899AA; font-size: 11px; font-weight: 600;
+                color: #8899AA; font-size: 13px; font-weight: 600;
             }
 
             /* ── Handled Scenarios Summary Box ── */
@@ -774,22 +783,25 @@ class ComplexitySettingsDialog(QDialog):
                 color: #8ECFA8; font-size: 11px; font-weight: 600; line-height: 1.5;
             }
 
+            /* ── Compat scenario label (larger than weightage table) ── */
+            QLabel#compatScenarioLabel { color: #C8D8E8; font-size: 12px; font-weight: 500; }
+
             /* ── Compat 4-column grid ── */
             QFrame#compatGridContainer  { background: transparent; }
             QFrame#compatColFrame {
                 background: #101E2E; border: 1px solid #1D3347; border-radius: 8px;
             }
-            QFrame#compatRowEven        { background: #101E2E; max-height: 26px; }
-            QFrame#compatRowOdd         { background: #0D1B2A; max-height: 26px; }
+            QFrame#compatRowEven        { background: #101E2E; min-height: 30px; max-height: 30px; }
+            QFrame#compatRowOdd         { background: #0D1B2A; min-height: 30px; max-height: 30px; }
 
             /* ── Compat group headers ── */
             QFrame#compatSectionHdr {
                 background: #162840; border-radius: 3px;
                 border-left: 3px solid #1E90FF;
-                margin: 1px 2px 1px 2px; max-height: 18px;
+                margin: 1px 2px 1px 2px; min-height: 22px; max-height: 22px;
             }
             QLabel#compatSectionHdrLabel {
-                color: #7EB8E8; font-size: 8px; font-weight: 900;
+                color: #7EB8E8; font-size: 10px; font-weight: 900;
                 letter-spacing: 0.3px; padding: 0px;
             }
 
@@ -797,22 +809,22 @@ class ComplexitySettingsDialog(QDialog):
             QPushButton#statusBadgeHandled {
                 background: #1A5C35; color: #2ECC71;
                 border: 1px solid #27AE60; border-radius: 4px;
-                font-size: 9px; font-weight: 800; padding: 0 2px;
+                font-size: 11px; font-weight: 800; padding: 0 2px;
             }
             QPushButton#statusBadgeHandled:hover:enabled  { background: #27AE60; color: white; }
             QPushButton#statusBadgeHandled:disabled       {
                 background: #1A5C35; color: #2ECC71; border-color: #27AE60;
             }
             QPushButton#statusBadgeNotHandled {
-                background: #1E2A38; color: #556677;
+                background: #1E2A38; color: #6688AA;
                 border: 1px solid #2A3F55; border-radius: 4px;
-                font-size: 11px; font-weight: 800; padding: 0 2px;
+                font-size: 13px; font-weight: 800; padding: 0 2px;
             }
             QPushButton#statusBadgeNotHandled:hover:enabled {
                 background: #1A3050; color: #C8D8E8; border-color: #1E90FF;
             }
             QPushButton#statusBadgeNotHandled:disabled    {
-                background: #1E2A38; color: #445566; border-color: #1D3347;
+                background: #1E2A38; color: #4A6080; border-color: #1D3347;
             }
 
             /* ── Compat action buttons ── */

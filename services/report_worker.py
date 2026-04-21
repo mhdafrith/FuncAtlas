@@ -2,7 +2,7 @@
 services/report_worker.py
 ─────────────────────────
 ReportCompareWorker – compares extracted function .txt files and writes the
-Excel match report (FuncAtlas_Report.xlsx).
+Excel match report (FuncAtlas_Report .xlsx).
 
 Sheets produced
 ───────────────

@@ -2111,6 +2111,14 @@ class ReuseAnalysisWindow(QMainWindow):
                 col_which  = hdrs1.index("Suggested Reference Base")
             except ValueError:
                 col_file, col_func, col_status, col_which = 0, 1, len(hdrs1)-3, len(hdrs1)-2
+            # LOC column — "Total LOC" is column D (index 3) in your Excel sheet
+            col_loc = None
+            for _loc_name in ("Total LOC", "LOC", "Lines of Code", "Length of Code", "Line Count", "Length"):
+                if _loc_name in hdrs1:
+                    col_loc = hdrs1.index(_loc_name)
+                    break
+            if col_loc is None and len(hdrs1) > 3:
+                col_loc = 3   # fallback: column D (0-based index 3)
             for row in ws1.iter_rows(min_row=2, values_only=True):
                 if not row or row[col_func] is None:
                     continue
@@ -2118,6 +2126,7 @@ class ReuseAnalysisWindow(QMainWindow):
                 sheet1_data[key] = {
                     "reuse_status": str(row[col_status] or ""),
                     "which_base":   str(row[col_which]  or ""),
+                    "loc":          str(row[col_loc] or "—") if col_loc is not None else "—",
                 }
 
         # ── Sheet 3: Complexity_Compatibility ─────────────────────────────────
@@ -2165,6 +2174,7 @@ class ReuseAnalysisWindow(QMainWindow):
                 "func_name":    func_name,
                 "reuse_status": s1["reuse_status"],
                 "which_base":   s1["which_base"],
+                "loc":          s1.get("loc", "—"),
                 "complexity":   sheet3_data.get(key, "—"),
                 "compat_pct":   sheet4_data.get(key, "—"),
             })
@@ -2219,6 +2229,7 @@ class ReuseAnalysisWindow(QMainWindow):
                 f'<td class="center">{html_idx}</td>'
                 f'<td>{row["file_name"]}</td>'
                 f'<td>{row["func_name"]}</td>'
+                f'<td class="center loc-cell">{row["loc"]}</td>'
                 f'<td class="center {sc}">{row["reuse_status"]}</td>'
                 f'<td>{row["which_base"]}</td>'
                 f'<td class="center {cxc}">{row["complexity"]}</td>'
@@ -2288,6 +2299,9 @@ class ReuseAnalysisWindow(QMainWindow):
   .cp-high {{ background: #c6efce !important; color: #276221; font-weight: bold; }}
   .cp-mid  {{ background: #ffeb9c !important; color: #9c5700; font-weight: bold; }}
   .cp-low  {{ background: #ffc7ce !important; color: #9c0006; font-weight: bold; }}
+
+  /* LOC — Lines of Code column */
+  .loc-cell {{ background: #e8f0fe !important; color: #1a3a7a; font-weight: bold; }}
 </style>
 </head>
 <body>
@@ -2319,8 +2333,9 @@ class ReuseAnalysisWindow(QMainWindow):
         <th>S.No</th>
         <th>File Name</th>
         <th>Function Name</th>
+        <th>LOC</th>
         <th>Status</th>
-        <th>Which Base</th>
+        <th>Suggested Base</th>
         <th>Complexity Level</th>
         <th>Compatibility %</th>
       </tr>

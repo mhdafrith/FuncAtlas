@@ -147,7 +147,7 @@ class ComplexityAnalysisWorker(QObject):
         self.weights       = {n: w for n, w in (weights or [])} or \
                              {n: 1 for n, _ in CONSTRUCTS}
         self.bands         = bands or [
-            ("Low",       1,   5),
+            ("Low",       0,   5),
             ("Medium",    6,  12),
             ("High",     13,  25),
             ("Very High", 26,  40),
@@ -338,7 +338,7 @@ class ComplexityAppendWorker(QObject):
         self.weights       = {n: w for n, w in (weights or [])} or \
                              {n: 1 for n, _ in CONSTRUCTS}
         self.bands         = bands or [
-            ("Low",       1,   5),
+            ("Low",       0,   5),
             ("Medium",    6,  12),
             ("High",     13,  25),
             ("Very High", 26,  40),
