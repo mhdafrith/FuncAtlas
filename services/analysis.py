@@ -1,5 +1,6 @@
 """
-services/analysis.py  –  scan/match logic + QObject workers
+services/analysis.py  –  scan/match logic + QObject workers 
+test line---
 """
 import os, re, json as _json
 from collections import OrderedDict
