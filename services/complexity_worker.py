@@ -18,25 +18,85 @@ from openpyxl.utils import get_column_letter
 from PySide6.QtCore import QObject, Signal
 
 from core.utils import (
-    normalize_path, iter_source_files,
+    normalize_path, normalize_name, iter_source_files,
     detect_functions_in_file, extract_function_body,
 )
 
 
 # ── Construct patterns (C language) ──────────────────────────────────────────
 CONSTRUCTS = [
-    ("If...Else",           r'\bif\s*\('),
-    ("If...Else if...Else", r'\belse\s+if\s*\('),
-    ("Nested If",           r'\bif\s*\([^)]*\)\s*\{[^}]*\bif\s*\('),
-    ("Switch",              r'\bswitch\s*\('),
-    ("For",                 r'\bfor\s*\('),
-    ("While",               r'\bwhile\s*\('),
+    # ── Control Flow ──────────────────────────────────────────────────────────
+    ("If Statement",        r'\bif\s*\('),
+    ("Else Branch",         r'\belse\b(?!\s*if)'),
+    ("Else-if Chain",       r'\belse\s+if\s*\('),
+    ("Switch Statement",    r'\bswitch\s*\('),
+    ("Case Label",          r'\bcase\s+'),
+    ("Default Label",       r'\bdefault\s*:'),
+    ("Break Statement",     r'\bbreak\s*;'),
+    ("For Loop",            r'\bfor\s*\('),
+    ("Return Statement",    r'\breturn\b'),
+    ("Continue Statement",  r'\bcontinue\s*;'),
+    ("While Loop",          r'\bwhile\s*\('),
     ("Do...While",          r'\bdo\s*\{'),
-    ("Return",              r'\breturn\b'),
+    # ── Function ──────────────────────────────────────────────────────────────
     ("Function Call",       r'\b[A-Za-z_]\w*\s*\('),
-    ("Pointers",            r'\*[A-Za-z_]\w*|\b[A-Za-z_]\w*\s*\*'),
-    ("Struct",              r'\bstruct\s+\w+'),
-    ("Assign",              r'(?<![=!<>])=(?!=)'),
+    ("Function Definition", r'\b[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\([^)]*\)\s*\{'),
+    ("Function Declaration",r'\b[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\([^)]*\)\s*;'),
+    # ── Pointer ───────────────────────────────────────────────────────────────
+    ("Address-of Operator", r'&[A-Za-z_]\w*'),
+    ("Pointer Declaration", r'\b[A-Za-z_]\w*\s*\*+\s*[A-Za-z_]\w*'),
+    ("Pointer Dereference", r'\*[A-Za-z_]\w*'),
+    ("Arrow Operator",      r'->\s*[A-Za-z_]\w*'),
+    ("Void Pointer",        r'\bvoid\s*\*'),
+    ("Pointer Arithmetic",  r'\b[A-Za-z_]\w*\s*[\+\-]\s*\d+|\b[A-Za-z_]\w*\s*\+\+|\+\+\s*[A-Za-z_]\w*'),
+    # ── Array ─────────────────────────────────────────────────────────────────
+    ("Array Access",        r'[A-Za-z_]\w*\s*\['),
+    ("Array Declaration",   r'[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\[\d*\]'),
+    ("String Literal",      r'"[^"]*"'),
+    ("Char Array",          r'\bchar\s+[A-Za-z_]\w*\s*\['),
+    # ── Type ──────────────────────────────────────────────────────────────────
+    ("Cast Operation",      r'\(\s*[A-Za-z_]\w*\s*\*?\s*\)\s*[A-Za-z_\(]'),
+    ("Typedef",             r'\btypedef\b'),
+    ("Enum Definition",     r'\benum\s+\w*\s*\{'),
+    ("Sizeof Operator",     r'\bsizeof\s*\('),
+    ("Const Declaration",   r'\bconst\b'),
+    ("Signed/Unsigned",     r'\b(?:signed|unsigned)\b'),
+    ("Short/Long",          r'\b(?:short|long)\b'),
+    # ── Storage ───────────────────────────────────────────────────────────────
+    ("Static Keyword",      r'\bstatic\b'),
+    # ── Preprocessor ─────────────────────────────────────────────────────────
+    ("Macro Definition",    r'#\s*define\b'),
+    ("Ifdef Directive",     r'#\s*ifdef\b'),
+    ("If Directive",        r'#\s*if\b(?!def)'),
+    ("Elif Directive",      r'#\s*elif\b'),
+    ("Else Directive",      r'#\s*else\b'),
+    ("Endif Directive",     r'#\s*endif\b'),
+    ("Pragma Directive",    r'#\s*pragma\b'),
+    # ── Operator ──────────────────────────────────────────────────────────────
+    ("Compound Assignment", r'[A-Za-z_]\w*\s*(?:\+=|-=|\*=|/=|%=|&=|\|=|\^=|<<=|>>=)'),
+    ("Increment",           r'\+\+'),
+    ("Decrement",           r'--'),
+    ("Bitwise AND",         r'(?<![&])&(?![&])'),
+    ("Bitwise OR",          r'(?<!\|)\|(?!\|)'),
+    ("Bitwise XOR",         r'\^'),
+    ("Bitwise NOT",         r'~'),
+    ("Left Shift",          r'<<'),
+    ("Right Shift",         r'>>'),
+    ("Logical AND",         r'&&'),
+    ("Logical OR",          r'\|\|'),
+    ("Logical NOT",         r'!(?!=)'),
+    # ── Safety ────────────────────────────────────────────────────────────────
+    ("NULL Check",          r'\bNULL\b.*(?:==|!=)|(?:==|!=).*\bNULL\b'),
+    ("NULL Assignment",     r'=\s*NULL\b'),
+    # ── Memory ────────────────────────────────────────────────────────────────
+    ("memset",              r'\bmemset\s*\('),
+    ("memcpy",              r'\bmemcpy\s*\('),
+    # ── Math ──────────────────────────────────────────────────────────────────
+    ("fabs",                r'\bfabs\s*\('),
+    # ── Misc ──────────────────────────────────────────────────────────────────
+    ("Designated Initializer", r'\.\s*[A-Za-z_]\w*\s*='),
+    ("Compound Literal",    r'\(\s*[A-Za-z_]\w+\s*\)\s*\{'),
+    ("Bit Field",           r':\s*\d+\s*;'),
 ]
 
 
@@ -125,7 +185,7 @@ class ComplexityAnalysisWorker(QObject):
             if not functions:
                 continue
 
-            rel_path = os.path.relpath(full_path, self.source_folder)
+            rel_path = os.path.join(os.path.basename(self.source_folder), os.path.relpath(full_path, self.source_folder))
 
             for fn_name in functions:
                 body = extract_function_body(full_path, fn_name)
@@ -300,76 +360,106 @@ class ComplexityAppendWorker(QObject):
             self.error.emit(f"Report file not found:\n{self.report_path}")
             return
 
-        # ── Read Sheet 1 to find which functions are New / Reuse (Modified) ──
-        # Only those two statuses need complexity analysis; pure Reuse (100%) skipped.
+        # ── Read Sheet 1 to collect ALL New / Reuse (Modified) rows ────────────
+        # We drive Sheet 3 directly from Sheet 1 rows so the row count and
+        # file/path values are identical.  Key: (fn_name_lower, file_path_lower)
+        # so same-named functions in different source files stay distinct.
         wb_check = load_workbook(self.report_path, read_only=True, data_only=True)
-        include_functions = set()   # set of function names to include
+        # sheet1_rows: list of (fn_display, file_name, file_path) for New/RM rows
+        sheet1_rows = []
+        # include_set: set of (fn_lower, filepath_lower) — for source lookup
+        include_set = set()
         if "Function_Match_Report" in wb_check.sheetnames:
             ws_check = wb_check["Function_Match_Report"]
-            rows_iter = ws_check.iter_rows(min_row=2, values_only=True)
-            for row in rows_iter:
+            for row in ws_check.iter_rows(min_row=2, values_only=True):
                 if not row or row[0] is None:
                     continue
-                fn_name = row[1]   # col B = Function Name
-                status  = None
-                # Find Reuse/New column — scan right-to-left for the status value
+                fn_name  = str(row[1] or "").strip()   # col B = Function Name
+                fname    = str(row[0] or "").strip()   # col A = File Name
+                fpath    = str(row[2] or "").strip()   # col C = Target File Path
+                status   = None
                 for cell_val in reversed(row):
                     if cell_val in ("Reuse", "New", "Reuse (Modified)"):
                         status = cell_val
                         break
-                if status in ("New", "Reuse (Modified)"):
-                    include_functions.add(str(fn_name).strip())
+                if status in ("New", "Reuse (Modified)") and fn_name:
+                    sheet1_rows.append((fn_name, fname, fpath))
+                    include_set.add((normalize_name(fn_name), fpath.lower()))
         wb_check.close()
 
-        if not include_functions:
+        if not sheet1_rows:
             self.error.emit(
                 "No 'New' or 'Reuse (Modified)' functions found in the report.\n"
                 "All functions may be 100% Reuse — nothing to analyse."
             )
             return
 
-        self.log.emit(f"📋 {len(include_functions)} functions to analyse "
+        self.log.emit(f"📋 {len(sheet1_rows)} functions to analyse "
                       f"(New + Reuse Modified only) …")
 
-        # ── Scan source for function bodies (filtered) ────────────────────────
+        # ── Scan source files and build a lookup: (fn_lower, filepath_lower) -> body
+        # We need to match each Sheet 1 row to the correct source file body.
         file_entries = list(iter_source_files(self.source_folder))
         if not file_entries:
             self.error.emit("No source files found in the target source folder.")
             return
 
         self.log.emit(f"🔍 Scanning {len(file_entries)} source files …")
-        records = []
+
+        # body_lookup: (fn_lower, full_path_lower) -> body_text
+        # Also keep a name-only fallback: fn_lower -> [(full_path, body)]
+        body_lookup   = {}   # (fn_lower, full_path_lower) -> body
+        body_fallback = {}   # fn_lower -> [(full_path, body)]
 
         for idx, (full_path, file_name) in enumerate(file_entries):
-            pct = int((idx / len(file_entries)) * 80)
+            pct = int((idx / len(file_entries)) * 75)
             self.progress.emit(pct, f"Scanning {file_name} …")
-
             functions = detect_functions_in_file(full_path)
             if not functions:
                 continue
-
-            rel_path = os.path.relpath(full_path, self.source_folder)
             for fn_name in functions:
-                # Skip pure Reuse functions
-                def _normalize(name):
-                    return re.sub(r'\s+', '', name).lower()
-                normalized_include = {_normalize(f) for f in include_functions}
-
-                if _normalize(fn_name) not in normalized_include:
-                    continue
+                fn_key = normalize_name(fn_name)
                 body   = extract_function_body(full_path, fn_name)
-                counts = count_constructs(body)
-                score  = sum(counts.get(cn, 0) * self.weights.get(cn, 1)
-                             for cn, _ in CONSTRUCTS)
-                level  = complexity_level(score, self.bands)
-                records.append({
-                    "function":  fn_name,
-                    "file_name": file_name,
-                    "file_path": rel_path,
-                    "counts":    counts,
-                    "score":     score,
-                    "level":     level,
-                })
+                body_lookup[(fn_key, full_path.lower())] = body
+                body_fallback.setdefault(fn_key, []).append((full_path, body))
+
+        # ── Build records list in Sheet 1 order ─────────────────────────────
+        # For each Sheet 1 row, find the matching body via composite key first,
+        # then fall back to name-only (picks the first matching source file).
+        records = []
+        for fn_display, s1_fname, s1_fpath in sheet1_rows:
+            fn_key = normalize_name(fn_display)
+            body   = None
+
+            # Try composite match: function name + any source file whose path
+            # ends with the same basename as the Sheet 1 file path
+            s1_basename = os.path.basename(s1_fpath).lower()
+            for (bk_fn, bk_path_lower), bk_body in body_lookup.items():
+                if bk_fn == fn_key and os.path.basename(bk_path_lower) == s1_basename:
+                    body = bk_body
+                    break
+
+            # Fallback: name-only (first occurrence in source)
+            if body is None:
+                candidates = body_fallback.get(fn_key, [])
+                if candidates:
+                    body = candidates[0][1]
+
+            if body is None:
+                body = ""
+
+            counts = count_constructs(body)
+            score  = sum(counts.get(cn, 0) * self.weights.get(cn, 1)
+                         for cn, _ in CONSTRUCTS)
+            level  = complexity_level(score, self.bands)
+            records.append({
+                "function":  fn_display,
+                "file_name": s1_fname,
+                "file_path": s1_fpath,
+                "counts":    counts,
+                "score":     score,
+                "level":     level,
+            })
 
         self.log.emit(f"✅ {len(records)} functions processed — appending Sheet 3 …")
         self.progress.emit(85, "Appending Complexity_Compatibility sheet …")
@@ -509,9 +599,13 @@ class ComplexityAppendWorker(QObject):
             # handled_in_fn = intersection of available and user-marked handled
             handled_in_fn = [cn for cn in available if cn in handled]
             unhandled_in_fn = [cn for cn in available if cn not in handled]
-            n_avail   = len(available)
-            n_handled = len(handled_in_fn)
-            compat_pct = round((n_handled / n_avail * 100), 2) if n_avail > 0 else 0.0
+            # Score = total appearances of handled scenarios /
+            #         total appearances of available scenarios * 100
+            total_avail_appearances   = sum(rec["counts"].get(cn, 0) for cn in available)
+            total_handled_appearances = sum(rec["counts"].get(cn, 0) for cn in handled_in_fn)
+            compat_pct = round(
+                (total_handled_appearances / total_avail_appearances * 100), 2
+            ) if total_avail_appearances > 0 else 0.0
 
             row_data = [
                 rec["file_name"],

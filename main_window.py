@@ -52,7 +52,6 @@ from pages.view_page import create_view_page
 from pages.diff_page import create_diff_page
 from pages.report_page import create_report_page
 from pages.help_page import create_help_page
-from pages.settings_page import create_settings_page
 from pages.complexity_page import create_complexity_page
 
 
@@ -450,7 +449,7 @@ class ReuseAnalysisWindow(QMainWindow):
         icon_map = {
             "home": "home", "input": "input", "view": "view",
             "diff": "diff", "report": "report", "complexity": "settings",
-            "help": "help", "settings": "settings",
+            "help": "help",
         }
         for key, btn in self.nav_buttons.items():
             btn.setIcon(self.icons.icon(icon_map[key], 18))
@@ -674,7 +673,6 @@ class ReuseAnalysisWindow(QMainWindow):
             ("report",     "Report",                  "report"),
             ("complexity", "Complexity & Compatibility", "settings"),
             ("help",       "Help",                    "help"),
-            ("settings",   "Settings",                "settings"),
         ]
         for key, text, icon_name in nav_items:
             btn = NavButton(text, self.icons.icon(icon_name, 18))
@@ -715,7 +713,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.theme_btn.setFixedHeight(38)
         self.theme_btn.clicked.connect(self.toggle_theme)
 
-        self.reset_all_btn = IconTextButton("🔄 Reset", QIcon())
+        self.reset_all_btn = IconTextButton("🔄  Reset", QIcon())
         self.reset_all_btn.setObjectName("pickerButton")
         self.reset_all_btn.setMinimumWidth(118)
         self.reset_all_btn.setFixedHeight(38)
@@ -740,7 +738,6 @@ class ReuseAnalysisWindow(QMainWindow):
         create_report_page(self)
         create_complexity_page(self)
         create_help_page(self)
-        create_settings_page(self)
 
         # ── Global loading overlay (covers entire window) ─────────────────────
         self._setup_global_overlay()
@@ -865,13 +862,12 @@ class ReuseAnalysisWindow(QMainWindow):
             "report":       ("Report Generator",           "Extracting Functions, Comparing and Generating Reports"),
             "complexity":   ("Complexity & compatibility",  "Review the generated report and manage complexity settings"),
             "help":         ("Help & Guidance",             "Instructions, workflow rules, and user support"),
-            "settings":     ("Settings",              "Appearance, font, and theme controls"),
         }
         active_nav = {
             "home": "home", "input": "input", "reference": "input", "consolidated": "input",
             "view": "view", "diff": "diff", "report": "report",
             "complexity": "complexity",
-            "help": "help", "settings": "settings",
+            "help": "help",
         }
         for btn in self.nav_buttons.values():
             btn.setChecked(False)
@@ -997,11 +993,7 @@ class ReuseAnalysisWindow(QMainWindow):
             QMessageBox.critical(self, "Load Error", str(e))
 
     def on_source_changed(self, _index):
-        self.show_loading("Loading source…")
-        try:
-            self.load_selected_source()
-        finally:
-            self.hide_loading()
+        self.load_selected_source()
 
     # ── tree population ───────────────────────────────────────────────────────
     def populate_view_tree(self):
@@ -1087,9 +1079,6 @@ class ReuseAnalysisWindow(QMainWindow):
                     tag = overall_tag
 
                     # Compute line-level diff flags for filter button logic.
-                    # These track whether the function contains added lines
-                    # (only_target), deleted lines (only_ref), or modified
-                    # lines — independent of the function-level tag.
                     has_added    = False
                     has_deleted  = False
                     has_modified = False
@@ -1120,9 +1109,6 @@ class ReuseAnalysisWindow(QMainWindow):
                             elif op == "insert":
                                 if any(l.strip() for l in rc): has_deleted = True
 
-                    # Always include functions that exist in both target and
-                    # reference — "equal" functions appear without highlight so
-                    # users can see every matching function, not just changed ones.
                     tagged_children.append((
                         func_name, tag, file_path,
                         ref_fns.get(func_name, []),  # list of (folder, fp)
@@ -1246,13 +1232,6 @@ class ReuseAnalysisWindow(QMainWindow):
                     else os.path.basename(folder_path))
 
         def _build_table(tgt_code, ref_code, tgt_lbl, ref_lbl, fn_tag):
-            """Build a QTableWidget showing the side-by-side diff with correct
-            colour on BOTH columns (Issue 3):
-              only_target  → green  left,  empty  right
-              only_ref     → empty  left,  yellow right
-              modified     → blue   left,  blue   right
-              equal        → no colour either side
-            """
             table = QTableWidget()
             table.setColumnCount(2)
             table.setHorizontalHeaderLabels([tgt_lbl, ref_lbl])
@@ -1276,15 +1255,12 @@ class ReuseAnalysisWindow(QMainWindow):
 
             rows_diff = []
             if fn_tag == "added":
-                # Function only in target — entire body is "added"
                 for ln in new_lines:
                     rows_diff.append(("only_target", ln, ""))
             elif fn_tag == "deleted":
-                # Function only in reference — entire body is "deleted"
                 for ln in ref_lines:
                     rows_diff.append(("only_ref", "", ln))
             else:
-                # Modified — line-by-line diff
                 matcher = difflib.SequenceMatcher(None, new_lines, ref_lines)
                 for op, i1, i2, j1, j2 in matcher.get_opcodes():
                     nc = new_lines[i1:i2]
@@ -1293,13 +1269,6 @@ class ReuseAnalysisWindow(QMainWindow):
                         for n, r in zip(nc, rc):
                             rows_diff.append(("equal", n, r))
                     elif op == "replace":
-                        # A replaced block means lines changed between target and ref.
-                        # Only pair lines as "modified" (blue) when BOTH sides have
-                        # exactly 1 line AND the lines are genuinely similar (ratio >= 0.5).
-                        # If they are completely different lines (e.g. difflib just happened
-                        # to pair a comment with a variable declaration), emit them
-                        # separately: target lines → green (only_target),
-                        # ref lines → yellow (only_ref).
                         if len(nc) == 1 and len(rc) == 1:
                             similarity = difflib.SequenceMatcher(
                                 None, nc[0].strip(), rc[0].strip()
@@ -1315,38 +1284,25 @@ class ReuseAnalysisWindow(QMainWindow):
                             for r in rc:
                                 rows_diff.append(("only_ref", "", r))
                     elif op == "delete":
-                        # Lines present in target but absent in ref → green (added in target)
                         for n in nc:
                             rows_diff.append(("only_target", n, ""))
                     elif op == "insert":
-                        # Lines present in ref but absent in target → yellow (deleted from target)
                         for r in rc:
                             rows_diff.append(("only_ref", "", r))
 
             table.setRowCount(len(rows_diff))
             for row_idx, (rtag, nl, rl) in enumerate(rows_diff):
-                # Fix 1: do NOT replace tabs — preserve original indentation
                 ni = QTableWidgetItem(nl)
                 ri = QTableWidgetItem(rl)
                 ni.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
                 ri.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
-                # All three colours appear on BOTH cells so the row is clearly visible.
-                # Guard: only apply a colour when the triggering side has actual content,
-                # so that blank placeholder rows (e.g. empty lines from trailing newlines)
-                # don't get accidentally painted.
-                #   only_target → GREEN  on BOTH cells  (content added in target; rl is empty placeholder)
-                #   only_ref    → YELLOW on BOTH cells  (content deleted from target; nl is empty placeholder)
-                #                 *** skip if rl is blank — nothing to highlight ***
-                #   modified    → BLUE   on BOTH cells  (content changed on both sides)
-                #   equal       → no colour
                 if rtag == "only_target" and nl.strip():
                     ni.setBackground(QColor("#2E7D32"))
                     ni.setForeground(QColor("#FFFFFF"))
                     ri.setBackground(QColor("#2E7D32"))
                     ri.setForeground(QColor("#FFFFFF"))
                 elif rtag == "only_ref" and rl.strip():
-                    # Only colour when the reference side actually has content
                     ni.setBackground(QColor("#F9A825"))
                     ni.setForeground(QColor("#000000"))
                     ri.setBackground(QColor("#F9A825"))
@@ -1356,7 +1312,6 @@ class ReuseAnalysisWindow(QMainWindow):
                     ni.setForeground(QColor("#FFFFFF"))
                     ri.setBackground(QColor("#1565C0"))
                     ri.setForeground(QColor("#FFFFFF"))
-                # equal or empty placeholder → no colour on either side
 
                 table.setItem(row_idx, 0, ni)
                 table.setItem(row_idx, 1, ri)
@@ -1365,11 +1320,9 @@ class ReuseAnalysisWindow(QMainWindow):
             return table
 
         if not ref_copies:
-            # Added function — no reference copy; show target body only
             table = _build_table(target_code, "", target_label, "Reference", diff_tag)
             self.diff_tabs.addTab(table, "{} vs Reference".format(target_label))
         else:
-            # Issue 2: one tab PER reference folder
             for folder_path, ref_fp in ref_copies:
                 ref_label = _make_ref_label(folder_path)
                 ref_code  = (extract_function_body(ref_fp, function_name)
@@ -1386,14 +1339,10 @@ class ReuseAnalysisWindow(QMainWindow):
             self.header.hide()
             self._diff_left_panel.hide()
             self._diff_fs_btn.setText("Exit Fullscreen")
-            # Hide filter buttons and clear button in fullscreen
             if hasattr(self, "_diff_filter_icon_lbl"):
                 self._diff_filter_icon_lbl.setVisible(False)
             for btn in getattr(self, "_diff_filter_btns", {}).values():
                 btn.setVisible(False)
-            if hasattr(self, "_diff_clear_btn"):
-                self._diff_clear_btn.setVisible(False)
-            # Show info bar (file + func name) and prev/next buttons
             if hasattr(self, "_diff_fs_info_bar"):
                 self._diff_fs_info_bar.setVisible(True)
             self._diff_update_fs_info()
@@ -1403,14 +1352,10 @@ class ReuseAnalysisWindow(QMainWindow):
             self.header.show()
             self._diff_left_panel.show()
             self._diff_fs_btn.setText("⛶  Fullscreen")
-            # Restore filter buttons and clear button
             if hasattr(self, "_diff_filter_icon_lbl"):
                 self._diff_filter_icon_lbl.setVisible(True)
             for btn in getattr(self, "_diff_filter_btns", {}).values():
                 btn.setVisible(True)
-            if hasattr(self, "_diff_clear_btn"):
-                self._diff_clear_btn.setVisible(True)
-            # Hide info bar
             if hasattr(self, "_diff_fs_info_bar"):
                 self._diff_fs_info_bar.setVisible(False)
 
@@ -1507,43 +1452,18 @@ class ReuseAnalysisWindow(QMainWindow):
 
     def _apply_diff_filter(self):
         """Rebuild the diff tree from raw data, applying the active tag filter
-        and search text.  Rebuilding from scratch (instead of hide/show) is the
-        only reliable way to guarantee Qt renders exactly what we want.
-        Does NOT touch diff_tabs so the open diff view is preserved.
-
-        Filter semantics (matches screenshot behaviour):
-          "Added"    → show functions that contain ANY added lines in their diff
-                       (only_target lines in a modified function, or purely deleted
-                        functions are excluded — they have no added lines)
-          "Deleted"  → show functions that contain ANY deleted lines (only_ref lines)
-          "Modified" → show functions that contain ANY modified (blue) line pairs
-        A function tagged "modified" can simultaneously satisfy all three filters
-        depending on which line types its diff contains.
+        and search text.
         """
         active      = getattr(self, "_diff_active_filter", None)
         search_text = self.diff_search_box.text().strip().lower()
 
-        TAG_COLORS = {
-            "added":    ("#2E7D32", "#FFFFFF"),
-            "deleted":  ("#F9A825", "#000000"),
-            "modified": ("#1565C0", "#FFFFFF"),
-            # "equal" has no color — rendered with default background
-        }
-
-        # ── Rebuild tree from stored raw data ────────────────────────────────
         self.diff_tree.clear()
 
         for entry in getattr(self, "_diff_raw_data", []):
             dn        = entry["display_name"]
             file_path = entry["file_path"]
             all_fns   = entry["functions"]
-            # Tuple layout: (func_name, tag, tgt_fp, ref_copies,
-            #                has_added, has_deleted, has_modified)
 
-            # Filter functions by active filter AND search text.
-            # The filter matches against LINE-LEVEL diff content, not the
-            # function-level tag, so that e.g. "Added" shows modified functions
-            # that contain added lines.
             visible_fns = []
             for fn_tuple in all_fns:
                 func_name, tag, tgt_fp, ref_copies = fn_tuple[0], fn_tuple[1], fn_tuple[2], fn_tuple[3]
@@ -1552,16 +1472,10 @@ class ReuseAnalysisWindow(QMainWindow):
                 has_modified = fn_tuple[6] if len(fn_tuple) > 6 else (tag == "modified")
 
                 if active is None:
-                    # No filter active → show everything including equal functions
                     tag_ok = True
                 elif tag == "equal":
-                    # Equal functions are never shown when a filter button is active
                     tag_ok = False
                 elif active == "added":
-                    # Show functions that have added lines OR are purely deleted
-                    # (deleted functions show as green "only_target" is N/A;
-                    #  actually deleted functions have only_ref lines so they
-                    #  appear under "Deleted" — keep consistent)
                     tag_ok = has_added
                 elif active == "deleted":
                     tag_ok = has_deleted
@@ -1577,7 +1491,6 @@ class ReuseAnalysisWindow(QMainWindow):
                 if tag_ok and search_ok:
                     visible_fns.append((func_name, tag, tgt_fp, ref_copies))
 
-            # Skip this file entirely if nothing passes the filter
             if not visible_fns:
                 continue
 
@@ -1605,11 +1518,9 @@ class ReuseAnalysisWindow(QMainWindow):
     # ── submit reset helper ───────────────────────────────────────────────────
     def _reset_view_and_diff(self):
         """Clear view page and diff page state fully before a new submit."""
-        # Clear scan cache so re-upload always reads fresh files
         with SCAN_CACHE_LOCK:
             SCAN_CACHE.clear()
 
-        # Reset core data
         self.function_records = OrderedDict()
         self.available_sources = []
         self.current_function_list_paths = []
@@ -1619,7 +1530,6 @@ class ReuseAnalysisWindow(QMainWindow):
         self.current_function_file = ""
         self.current_function_body = ""
 
-        # Reset view page widgets
         if hasattr(self, "source_combo"):
             self.source_combo.blockSignals(True)
             self.source_combo.clear()
@@ -1635,7 +1545,6 @@ class ReuseAnalysisWindow(QMainWindow):
         if hasattr(self, "view_mode_chip"):
             self.view_mode_chip.setVisible(False)
 
-        # Reset diff page completely
         self._clear_diff()
 
     # ── submit reference ──────────────────────────────────────────────────────
@@ -1647,17 +1556,13 @@ class ReuseAnalysisWindow(QMainWindow):
         if not target_folders:
             QMessageBox.warning(self, "Missing Input", "Please select Target Base Folder.")
             return
-        if not ref_folders:
-            QMessageBox.warning(self, "Missing Input", "Please select at least one Reference Base Folder.")
-            return
 
-        # Show submitting state
         self.ref_submit_btn.setEnabled(False)
         self.ref_submit_btn.setText("Submitting...")
-        self.show_loading("Scanning source folders…")
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
 
         try:
-            # Fix 2: full reset before loading new data
             self._reset_view_and_diff()
 
             target_root = target_folders[0]
@@ -1670,29 +1575,26 @@ class ReuseAnalysisWindow(QMainWindow):
                 entries.append(self.build_source_entry("reference", folder))
             self.register_sources(entries, function_list, ref_folders)
 
-            ref_text = "\n".join(ref_folders) or "No reference folders selected"
-            fn_text  = "\n".join(function_list) or "No function list selected"
-            self.hide_loading()
+            ref_text = "\n".join(ref_folders) if ref_folders else "No reference folders selected"
+            fn_text  = "\n".join(function_list) if function_list else "No function list selected"
             QMessageBox.information(self, "Success",
                 f"Reference data loaded successfully.\n\nTarget Base Folder:\n{target_root}\n\n"
                 f"Reference Base Folders:\n{ref_text}\n\nFunction List:\n{fn_text}\n\n"
                 f"Dropdown Sources: {len(entries)}")
+        except Exception as e:
+            QMessageBox.critical(self, "Submit Error", str(e))
         finally:
-            self.hide_loading()
             self.ref_submit_btn.setEnabled(True)
             self.ref_submit_btn.setText("Submit")
 
     # ── submit consolidated ───────────────────────────────────────────────────
     def submit_consolidated(self):
-        # ── Determine source mode ─────────────────────────────────────────────
         use_folder_mode = hasattr(self, "con_toggle_folder_btn") and \
                           self.con_toggle_folder_btn.isChecked()
 
-        # Fix 2: full reset before loading new consolidated data
         self._reset_view_and_diff()
 
         if use_folder_mode:
-            # Folder mode: extract functions to temp excel, auto-detect func col
             target_folder = self.con_folder_field.value()
             if not target_folder or not os.path.isdir(target_folder):
                 QMessageBox.warning(self, "Missing Input",
@@ -1708,7 +1610,6 @@ class ReuseAnalysisWindow(QMainWindow):
                 QMessageBox.warning(self, "Invalid Input",
                     "Base Col must be detected or entered like B2, C1, G3, etc."); return
 
-            # Extract to temp Excel
             try:
                 temp_excel_path, fn_count = extract_functions_from_folder_to_excel(target_folder)
             except Exception as exc:
@@ -1719,17 +1620,13 @@ class ReuseAnalysisWindow(QMainWindow):
                 QMessageBox.warning(self, "No Functions Found",
                     "No functions were detected in the selected folder."); return
 
-            # Auto-detect function name column from the generated temp excel
-            # It's always column C ("Function Name"), row 1 → reference = "C1"
             func_col_ref = "C1"
-            # Reflect detected value in the (disabled) UI field
             self.con_func_col_field.input.setText(func_col_ref)
             self.con_func_col_field.preview.setText("Preview: auto-detected (folder mode)")
 
             function_list_files = [temp_excel_path]
 
         else:
-            # Normal excel-list mode
             function_list_files = self.con_function_field.value()
             consolidated_excel  = self.con_db_excel_field.value()
             func_col_ref        = self.con_func_col_field.value()
@@ -1756,8 +1653,9 @@ class ReuseAnalysisWindow(QMainWindow):
 
         self.con_submit_btn.setEnabled(False)
         self.con_submit_btn.setText("Submitting...")
+        from PySide6.QtWidgets import QApplication
+        QApplication.processEvents()
         self.con_output_link_field.clear_selection()
-        self.show_loading("Processing consolidated data…")
 
         self.con_thread = QThread(parent=self)
         self.con_worker = ConsolidatedWorker(
@@ -1779,7 +1677,6 @@ class ReuseAnalysisWindow(QMainWindow):
         self.con_thread.start()
 
     def on_consolidated_finished(self, result: dict):
-        self.hide_loading()
         self.con_submit_btn.setEnabled(True)
         self.con_submit_btn.setText("Submit")
         self.con_output_link_field.set_output(result["output_file"])
@@ -1793,7 +1690,6 @@ class ReuseAnalysisWindow(QMainWindow):
         self.con_worker = None; self.con_thread = None
 
     def on_consolidated_error(self, message: str):
-        self.hide_loading()
         self.con_submit_btn.setEnabled(True)
         self.con_submit_btn.setText("Submit")
         QMessageBox.critical(self, "Processing Error", message)
@@ -1822,11 +1718,6 @@ class ReuseAnalysisWindow(QMainWindow):
                 self.report_summary_chips["phase"].set_value(status_text[:22])
 
     def _cumulative_progress(self, current_step_pct: int) -> int:
-        """
-        Compute cumulative overall progress.
-        Each completed step contributes its full share; the active step
-        contributes a fractional share based on current_step_pct (0-100).
-        """
         total = getattr(self, "_report_total_steps", 1) or 1
         done  = getattr(self, "_report_done_steps",  0)
         overall = (done + current_step_pct / 100.0) / total * 100
@@ -1899,7 +1790,6 @@ class ReuseAnalysisWindow(QMainWindow):
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Starting")
             self.report_summary_chips["result"].set_value("Pending")
-        self.show_loading("Generating report…")
 
         import shutil as _shutil
         with SCAN_CACHE_LOCK:
@@ -1978,7 +1868,6 @@ class ReuseAnalysisWindow(QMainWindow):
             output_root     = self._report_output_root,
             target_src_path = _target_src,
             ref_src_paths   = _ref_srcs,
-            # Pass user-configured complexity settings from Complexity page
             weights         = getattr(self, '_complexity_weights', None),
             bands           = getattr(self, '_complexity_bands',   None),
         )
@@ -2027,7 +1916,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self._report_target_label = target_entry["label"]
         self._report_ref_labels   = [r["label"] for r in ref_entries]
         self._report_output_root  = output_root
-        self._report_html_mode    = True   # flag so _on_extraction_done_html is used
+        self._report_html_mode    = True
 
         self._set_report_progress(0, "Preparing extraction …")
         self.report_log_box.clear()
@@ -2039,7 +1928,6 @@ class ReuseAnalysisWindow(QMainWindow):
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Starting")
             self.report_summary_chips["result"].set_value("Pending")
-        self.show_loading("Generating HTML report…")
 
         import shutil as _shutil
         with SCAN_CACHE_LOCK:
@@ -2143,7 +2031,6 @@ class ReuseAnalysisWindow(QMainWindow):
             self._set_report_progress(100, "HTML save cancelled")
             self.report_generate_html_btn.setEnabled(True)
             self.report_generate_html_btn.setText("Generate HTML Report")
-            self.hide_loading()
             return
         try:
             html_path = self._write_html_from_excel(out_excel, save_path=save_path)
@@ -2164,10 +2051,7 @@ class ReuseAnalysisWindow(QMainWindow):
             self.report_summary_chips["phase"].set_value("Completed")
             self.report_summary_chips["result"].set_value("HTML ready")
         self._report_append_log(f"✓ HTML Report: {html_path}")
-        self.hide_loading()
-        # Auto-open the HTML report in the default browser
-        from PySide6.QtCore import QUrl
-        QDesktopServices.openUrl(QUrl.fromLocalFile(html_path))
+
 
     def _on_complexity_generate_html(self):
         """Generate HTML report from the Excel on the Complexity page — ask where to save."""
@@ -2189,29 +2073,19 @@ class ReuseAnalysisWindow(QMainWindow):
         )
         if not save_path:
             return
-        self.show_loading("Generating HTML report…")
         try:
             html_path = self._write_html_from_excel(path, save_path=save_path)
         except Exception as exc:
-            self.hide_loading()
             QMessageBox.critical(self, "HTML Report Error", f"Failed to generate HTML:\n{exc}")
             return
-        self.hide_loading()
         self._last_complexity_html = html_path
         QMessageBox.information(self, "HTML Report Ready",
             f"HTML report saved successfully.\n\nFile:\n{html_path}")
-        # Auto-open the HTML report after generation
-        from PySide6.QtCore import QUrl
-        QDesktopServices.openUrl(QUrl.fromLocalFile(html_path))
 
     def _write_html_from_excel(self, excel_path: str, save_path: str = None) -> str:
         """
         Read all four sheets of FuncAtlas_Report.xlsx and produce a
-        styled standalone HTML report:
-          • Summary block at top (from Sheet 2 'Summary')
-          • Detail table: S.No | File Name | Function Name | Reuse/New |
-                          Which Base | Complexity Level | Compatibility %
-            (joined from Sheet1, Sheet3, Sheet4)
+        styled standalone HTML report.
         """
         import openpyxl
 
@@ -2226,12 +2100,10 @@ class ReuseAnalysisWindow(QMainWindow):
                     summary_rows.append((str(row[0]), str(row[1]) if row[1] is not None else ""))
 
         # ── Sheet 1: Function_Match_Report ────────────────────────────────────
-        # Columns: File Name | Function Name | Target File Path | Ref Match%... | Reuse/New | Which Base | Ref file path
-        sheet1_data = {}   # key = (file_name, func_name) → {reuse_status, which_base}
+        sheet1_data = {}
         if "Function_Match_Report" in wb.sheetnames:
             ws1 = wb["Function_Match_Report"]
             hdrs1 = [str(c).strip() if c else "" for c in next(ws1.iter_rows(min_row=1, max_row=1, values_only=True))]
-            # locate key columns by header name
             try:
                 col_file   = hdrs1.index("File Name")
                 col_func   = hdrs1.index("Function Name")
@@ -2249,8 +2121,7 @@ class ReuseAnalysisWindow(QMainWindow):
                 }
 
         # ── Sheet 3: Complexity_Compatibility ─────────────────────────────────
-        # Columns: File Name | Function Name | Target File Path | ...constructs... | Complexity Score | Complexity Level
-        sheet3_data = {}   # key = (file_name, func_name) → complexity_level
+        sheet3_data = {}
         if "Complexity_Compatibility" in wb.sheetnames:
             ws3 = wb["Complexity_Compatibility"]
             hdrs3 = [str(c).strip() if c else "" for c in next(ws3.iter_rows(min_row=1, max_row=1, values_only=True))]
@@ -2267,8 +2138,7 @@ class ReuseAnalysisWindow(QMainWindow):
                 sheet3_data[key] = str(row[c3_level] or "")
 
         # ── Sheet 4: Compatibility_Score ──────────────────────────────────────
-        # Columns: File Name | Function Name | File Path | Available Scenarios | Handled | Unhandled | Compatibility %
-        sheet4_data = {}   # key = (file_name, func_name) → compat_pct string
+        sheet4_data = {}
         if "Compatibility_Score" in wb.sheetnames:
             ws4 = wb["Compatibility_Score"]
             hdrs4 = [str(c).strip() if c else "" for c in next(ws4.iter_rows(min_row=1, max_row=1, values_only=True))]
@@ -2287,7 +2157,6 @@ class ReuseAnalysisWindow(QMainWindow):
         wb.close()
 
         # ── Build merged rows ─────────────────────────────────────────────────
-        # Use Sheet 1 as the master list; enrich with sheets 3 & 4
         merged = []
         for (file_name, func_name), s1 in sheet1_data.items():
             key = (file_name, func_name)
@@ -2470,7 +2339,6 @@ class ReuseAnalysisWindow(QMainWindow):
         return html_path
 
     def _on_report_error_html(self, msg: str):
-        self.hide_loading()
         self._report_append_log(f"ERROR: {msg}")
         self.report_phase_label.setText("⚠ Error")
         self.report_generate_html_btn.setEnabled(True)
@@ -2485,7 +2353,6 @@ class ReuseAnalysisWindow(QMainWindow):
         from ui.widgets import StepStatusWidget
         self._report_output_file = out_file
         self._last_report_excel  = out_file
-        # Auto-populate Complexity page with the just-generated report
         if hasattr(self, 'complexity_report_display'):
             self.complexity_report_display.setText(out_file)
         self.report_step_widget.set_state("📊 Comparing & Writing Excel Report",
@@ -2499,12 +2366,10 @@ class ReuseAnalysisWindow(QMainWindow):
             self.report_summary_chips["phase"].set_value("Completed")
             self.report_summary_chips["result"].set_value("Excel ready")
         self._report_append_log(f"✓ Report: {out_file}")
-        self.hide_loading()
         QMessageBox.information(self, "Report Ready",
             f"FuncAtlas report generated successfully.\n\nFile:\n{out_file}")
 
     def _on_report_error(self, msg: str):
-        self.hide_loading()
         self._report_append_log(f"ERROR: {msg}")
         self.report_phase_label.setText("⚠ Error")
         self.report_status_label.setText("Error — see log below.")
@@ -2539,17 +2404,15 @@ class ReuseAnalysisWindow(QMainWindow):
             self.report_log_panel.set_expanded(False)
 
     def _on_report_open(self):
-        """Open the Excel report generated on the Report page directly — no format choice dialog."""
+        """Open the Excel report generated on the Report page directly."""
         from PySide6.QtCore import QUrl
 
-        # Report page only produces an Excel report; open it directly.
         excel_path = getattr(self, "_last_report_excel", "") or ""
 
         if excel_path and os.path.exists(excel_path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(excel_path))
             return
 
-        # Fallback: let the user browse for the file if nothing was generated yet.
         path, _ = QFileDialog.getOpenFileName(
             self, "Open Report", "",
             "Excel Files (*.xlsx *.xls);;All Files (*.*)"
@@ -2695,13 +2558,11 @@ class ReuseAnalysisWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Stop and wait for every background thread before closing."""
-        # 1. Threads tracked in _active_threads (con + report workers)
         for thread in list(self._active_threads):
             if thread and thread.isRunning():
                 thread.quit()
                 thread.wait(3000)
 
-        # 2. AutoDetectColumnField threads — field keeps a _threads LIST
         for field_attr in ("con_func_col_field", "con_base_col_field"):
             field = getattr(self, field_attr, None)
             if field is None:
@@ -2711,7 +2572,6 @@ class ReuseAnalysisWindow(QMainWindow):
                     thread.quit()
                     thread.wait(2000)
 
-        # 3. Report threads may have been created but not yet added (race guard)
         for t_attr in ("_report_ext_thread", "_report_cmp_thread", "con_thread"):
             t = getattr(self, t_attr, None)
             if t and t.isRunning():

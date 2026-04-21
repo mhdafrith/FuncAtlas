@@ -17,20 +17,33 @@ from services.complexity_worker import ComplexityAppendWorker
 _SETTINGS_DIR = os.path.join(os.path.expanduser("~"), ".funcatlas")
 _HANDLED_JSON = os.path.join(_SETTINGS_DIR, "handled_scenarios.json")
 
-ALL_SCENARIOS = [
-    "If...Else",
-    "If...Else if...Else",
-    "Nested If",
-    "Switch",
-    "For",
-    "While",
-    "Do...While",
-    "Return",
-    "Function Call",
-    "Pointers",
-    "Struct",
-    "Assign",
+SCENARIO_GROUPS = [
+    ("Control Flow", [
+        "If Statement", "Else Branch", "Else-if Chain", "Switch Statement",
+        "Case Label", "Default Label", "Break Statement", "For Loop",
+        "Return Statement", "Continue Statement", "While Loop", "Do...While",
+    ]),
+    ("Language Constructs", [
+        "Function Call", "Function Definition", "Function Declaration",
+        "Address-of Operator", "Pointer Declaration", "Pointer Dereference",
+        "Arrow Operator", "Void Pointer", "Pointer Arithmetic",
+        "Array Access", "Array Declaration", "String Literal", "Char Array",
+        "Cast Operation", "Typedef", "Enum Definition", "Sizeof Operator",
+        "Const Declaration", "Signed/Unsigned", "Short/Long", "Static Keyword",
+        "Compound Assignment", "Increment", "Decrement",
+        "Bitwise AND", "Bitwise OR", "Bitwise XOR", "Bitwise NOT",
+        "Left Shift", "Right Shift", "Logical AND", "Logical OR", "Logical NOT",
+        "Designated Initializer", "Compound Literal", "Bit Field",
+    ]),
+    ("Preprocessor / Safety / Memory", [
+        "Macro Definition", "Ifdef Directive", "If Directive", "Elif Directive",
+        "Else Directive", "Endif Directive", "Pragma Directive",
+        "NULL Check", "NULL Assignment",
+        "memset", "memcpy", "fabs",
+    ]),
 ]
+
+ALL_SCENARIOS = [sc for _, scs in SCENARIO_GROUPS for sc in scs]
 
 
 def _load_handled_scenarios():
@@ -54,18 +67,36 @@ def _save_handled_scenarios(handled):
 # ── Combined Complexity + Compatibility Settings Dialog ───────────────────────
 class ComplexitySettingsDialog(QDialog):
     DEFAULT_WEIGHTS = [
-        ("If...Else",           1),
-        ("If...Else if...Else", 2),
-        ("Nested If",           4),
-        ("Switch",              2),
-        ("For",                 2),
-        ("While",               2),
-        ("Do...While",          2),
-        ("Return",              1),
-        ("Function Call",       4),
-        ("Pointers",            7),
-        ("Struct",              3),
-        ("Assign",              1),
+        ("If Statement",           1), ("Else Branch",            1),
+        ("Else-if Chain",          2), ("Switch Statement",       2),
+        ("Case Label",             1), ("Default Label",          1),
+        ("Break Statement",        1), ("For Loop",               2),
+        ("Return Statement",       1), ("Continue Statement",     1),
+        ("While Loop",             2), ("Do...While",             2),
+        ("Function Call",          4), ("Function Definition",    3),
+        ("Function Declaration",   2), ("Address-of Operator",    3),
+        ("Pointer Declaration",    4), ("Pointer Dereference",    4),
+        ("Arrow Operator",         3), ("Void Pointer",           5),
+        ("Pointer Arithmetic",     5), ("Array Access",           2),
+        ("Array Declaration",      2), ("String Literal",         1),
+        ("Char Array",             2), ("Cast Operation",         3),
+        ("Typedef",                2), ("Enum Definition",        2),
+        ("Sizeof Operator",        2), ("Const Declaration",      1),
+        ("Signed/Unsigned",        1), ("Short/Long",             1),
+        ("Static Keyword",         2), ("Compound Assignment",    1),
+        ("Increment",              1), ("Decrement",              1),
+        ("Bitwise AND",            2), ("Bitwise OR",             2),
+        ("Bitwise XOR",            2), ("Bitwise NOT",            2),
+        ("Left Shift",             2), ("Right Shift",            2),
+        ("Logical AND",            1), ("Logical OR",             1),
+        ("Logical NOT",            1), ("Designated Initializer", 2),
+        ("Compound Literal",       2), ("Bit Field",              3),
+        ("Macro Definition",       2), ("Ifdef Directive",        1),
+        ("If Directive",           1), ("Elif Directive",         1),
+        ("Else Directive",         1), ("Endif Directive",        1),
+        ("Pragma Directive",       1), ("NULL Check",             3),
+        ("NULL Assignment",        2), ("memset",                 3),
+        ("memcpy",                 3), ("fabs",                   2),
     ]
 
     DEFAULT_BANDS = [
@@ -75,6 +106,9 @@ class ComplexitySettingsDialog(QDialog):
         ("Very High", 26,  40),
         ("Complex",  41, 999),
     ]
+
+    # Colour palette for the 5 bands (Low → Complex)
+    BAND_COLORS = ["#27AE60", "#2980B9", "#F39C12", "#E67E22", "#C0392B"]
 
     def __init__(self, parent, weights=None, bands=None, handled_scenarios=None):
         super().__init__(parent)
@@ -88,7 +122,7 @@ class ComplexitySettingsDialog(QDialog):
         self._bands   = bands   if bands   is not None else [list(r) for r in self.DEFAULT_BANDS]
         self._handled = set(handled_scenarios) if handled_scenarios is not None else _load_handled_scenarios()
 
-        self._show_complexity   = (weights is not None or bands is not None)
+        self._show_complexity    = (weights is not None or bands is not None)
         self._show_compatibility = (handled_scenarios is not None)
 
         outer = QVBoxLayout(self)
@@ -97,41 +131,32 @@ class ComplexitySettingsDialog(QDialog):
         shell = QFrame()
         shell.setObjectName("complexityDialogShell")
         shell_layout = QVBoxLayout(shell)
-        shell_layout.setContentsMargins(32, 28, 32, 28)
-        shell_layout.setSpacing(20)
+        shell_layout.setContentsMargins(32, 14, 32, 14)   # tighter padding — reclaimed space
+        shell_layout.setSpacing(10)
 
-        # ── Header row ────────────────────────────────────────────────────────
+        # ── Header row: action buttons only (title removed — reclaim vertical space) ──
         head_row = QHBoxLayout()
-        title_lbl = QLabel("Complexity & Compatibility Settings")
-        title_lbl.setObjectName("complexityDialogTitle")
-
-        # FIX 4: show Save & Close only in complexity mode; compat uses its own Save Changes btn
-        # FIX 5: show Default button (reset to defaults) only in complexity mode
-        head_row.addWidget(title_lbl)
         head_row.addStretch()
 
         if self._show_complexity:
-            # Default button — resets weights and bands to built-in defaults (FIX 5)
             default_btn = QPushButton("  \u21BA  Default")
             default_btn.setObjectName("complexityDefaultBtn")
-            default_btn.setFixedSize(130, 44)
+            default_btn.setFixedSize(130, 40)
             default_btn.setToolTip("Reset all weights and bands to their default values")
             default_btn.clicked.connect(self._on_reset_defaults)
             head_row.addWidget(default_btn)
             head_row.addSpacing(8)
 
-            # Save & Close only for complexity settings (FIX 4: removed from compat dialog)
             save_btn = QPushButton("  Save \u0026 Close")
             save_btn.setObjectName("complexitySaveBtn")
-            save_btn.setFixedSize(150, 44)
+            save_btn.setFixedSize(150, 40)
             save_btn.clicked.connect(self._on_save)
             head_row.addWidget(save_btn)
             head_row.addSpacing(8)
 
-        # Close button always present
         close_btn = QPushButton("  Close")
         close_btn.setObjectName("complexityCloseBtn")
-        close_btn.setFixedSize(120, 44)
+        close_btn.setFixedSize(120, 40)
         close_btn.clicked.connect(self.reject)
         head_row.addWidget(close_btn)
         shell_layout.addLayout(head_row)
@@ -141,7 +166,7 @@ class ComplexitySettingsDialog(QDialog):
         body_row.setSpacing(24)
 
         if self._show_complexity:
-            # Col 1: Weightage
+            # ── Col 1: Weightage (scrollable) ─────────────────────────────────
             left_frame = QFrame()
             ll = QVBoxLayout(left_frame)
             ll.setContentsMargins(0, 0, 0, 0)
@@ -176,7 +201,7 @@ class ComplexitySettingsDialog(QDialog):
             ll.addWidget(w_scroll, 1)
             body_row.addWidget(left_frame, 1)
 
-            # Col 2: Complexity Bands
+            # ── Col 2: Complexity Bands + Band Scale Preview ───────────────────
             mid_frame = QFrame()
             ml = QVBoxLayout(mid_frame)
             ml.setContentsMargins(0, 0, 0, 0)
@@ -204,24 +229,27 @@ class ComplexitySettingsDialog(QDialog):
 
             note = QLabel(
                 "Each level has two editable boxes: start value and end value.\n"
-                "Example: Low=1 to 5, Medium=6 to 12, High=13 to 25, "
-                "Very High=26 to 40, Complex=41 and above."
+                "Example: Low=1–5 · Medium=6–12 · High=13–25 · "
+                "Very High=26–40 · Complex=41+"
             )
             note.setObjectName("complexityNote")
             note.setWordWrap(True)
             ml.addWidget(note)
+
+            # ── Band Scale Preview — fills the empty gap below the bands ──────
+            ml.addWidget(self._build_band_preview())
             ml.addStretch()
+
             body_row.addWidget(mid_frame, 1)
 
-        # ── Compatibility panel — redesigned as a single table ────────────────
+        # ── Compatibility panel ───────────────────────────────────────────────
         if self._show_compatibility:
             compat_frame = QFrame()
             compat_frame.setObjectName("compatFrame")
             cl = QVBoxLayout(compat_frame)
             cl.setContentsMargins(0, 0, 0, 0)
-            cl.setSpacing(10)
+            cl.setSpacing(6)          # tight — eliminates dead vertical space
 
-            # Section header + subtitle
             cl.addWidget(self._section_hdr(
                 "Compatibility Scenarios",
                 "Click to mark which C scenarios your system handles"
@@ -231,8 +259,8 @@ class ComplexitySettingsDialog(QDialog):
             self._summary_frame = QFrame()
             self._summary_frame.setObjectName("handledSummaryBox")
             summary_layout = QVBoxLayout(self._summary_frame)
-            summary_layout.setContentsMargins(14, 10, 14, 10)
-            summary_layout.setSpacing(4)
+            summary_layout.setContentsMargins(12, 6, 12, 6)
+            summary_layout.setSpacing(2)
 
             summary_title_row = QHBoxLayout()
             summary_title_lbl = QLabel("✓  Already Handled Scenarios")
@@ -251,25 +279,25 @@ class ComplexitySettingsDialog(QDialog):
 
             cl.addWidget(self._summary_frame)
 
-            # ── Modify / Save / Cancel button row ────────────────────────────
+            # ── Modify / Save / Cancel button row (directly below summary) ────
             self._edit_mode = False
-
             btn_row = QHBoxLayout()
+            btn_row.setContentsMargins(0, 2, 0, 2)
             btn_row.addStretch()
 
             self.modify_btn = QPushButton("  ✎  Modify")
             self.modify_btn.setObjectName("compatModifyBtn")
-            self.modify_btn.setFixedSize(130, 36)
+            self.modify_btn.setFixedSize(130, 30)
             self.modify_btn.clicked.connect(self._enable_edit_mode)
 
             self.save_edit_btn = QPushButton("✔  Save Changes")
             self.save_edit_btn.setObjectName("compatSaveEditBtn")
-            self.save_edit_btn.setFixedSize(150, 36)
+            self.save_edit_btn.setFixedSize(150, 30)
             self.save_edit_btn.clicked.connect(self._save_changes)
 
             self.cancel_edit_btn = QPushButton("✖  Cancel")
             self.cancel_edit_btn.setObjectName("compatCancelEditBtn")
-            self.cancel_edit_btn.setFixedSize(110, 36)
+            self.cancel_edit_btn.setFixedSize(110, 30)
             self.cancel_edit_btn.clicked.connect(self._cancel_edit)
 
             btn_row.addWidget(self.modify_btn)
@@ -279,35 +307,73 @@ class ComplexitySettingsDialog(QDialog):
             btn_row.addWidget(self.cancel_edit_btn)
             cl.addLayout(btn_row)
 
-            # ── Single-table scroll area ──────────────────────────────────────
-            tbl_scroll = QScrollArea()
-            tbl_scroll.setWidgetResizable(True)
-            tbl_scroll.setFrameShape(QFrame.NoFrame)
-            tbl_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+            # ── 4-column grid (all 60 scenarios visible at once) ──────────────
+            from PySide6.QtWidgets import QSizePolicy
 
-            tbl_inner = QFrame()
-            tbl_inner.setObjectName("complexityTableInner")
-            til = QVBoxLayout(tbl_inner)
-            til.setContentsMargins(0, 0, 0, 0)
-            til.setSpacing(0)
+            grid_container = QFrame()
+            grid_container.setObjectName("compatGridContainer")
+            grid_container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            grid_outer = QVBoxLayout(grid_container)
+            grid_outer.setContentsMargins(0, 0, 0, 0)
+            grid_outer.setSpacing(4)
 
-            # Header row
-            til.addWidget(self._tbl_hdr(["C Scenario", "Status"]))
-
-            # One row per scenario: label + status badge button
             self._status_btns = {}
-            for i, sc in enumerate(ALL_SCENARIOS):
-                row, badge = self._scenario_status_row(sc, sc in self._handled, i)
-                til.addWidget(row)
-                self._status_btns[sc] = badge
 
-            til.addStretch()
-            tbl_scroll.setWidget(tbl_inner)
-            cl.addWidget(tbl_scroll, 1)
+            # Distribute scenarios evenly across 4 columns
+            all_flat = [(sc, grp) for grp, scs in SCENARIO_GROUPS for sc in scs]
+            total = len(all_flat)
+            NUM_COLS = 4
+            base_per_col = total // NUM_COLS
+            remainder    = total % NUM_COLS
+            col_sizes = [base_per_col + (1 if i < remainder else 0) for i in range(NUM_COLS)]
 
-            # Start in view-only mode
+            col_frames_layout = QHBoxLayout()
+            col_frames_layout.setSpacing(6)
+            col_frames_layout.setContentsMargins(0, 0, 0, 0)
+
+            sc_iter = iter(all_flat)
+            for col_i, col_size in enumerate(col_sizes):
+                col_frame = QFrame()
+                col_frame.setObjectName("compatColFrame")
+                col_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+                col_vl = QVBoxLayout(col_frame)
+                col_vl.setContentsMargins(0, 0, 0, 0)
+                col_vl.setSpacing(0)
+
+                cur_group = None
+                local_row = 0
+                for _ in range(col_size):
+                    item = next(sc_iter, None)
+                    if item is None:
+                        break
+                    sc, grp = item
+
+                    if grp != cur_group:
+                        cur_group = grp
+                        sec_hdr = QFrame()
+                        sec_hdr.setObjectName("compatSectionHdr")
+                        sec_hdr.setFixedHeight(18)
+                        sec_hl = QHBoxLayout(sec_hdr)
+                        sec_hl.setContentsMargins(6, 1, 6, 1)
+                        lbl = QLabel(grp)
+                        lbl.setObjectName("compatSectionHdrLabel")
+                        sec_hl.addWidget(lbl)
+                        col_vl.addWidget(sec_hdr)
+
+                    row_w, badge = self._scenario_status_row(sc, sc in self._handled, local_row)
+                    row_w.setFixedHeight(26)
+                    col_vl.addWidget(row_w)
+                    self._status_btns[sc] = badge
+                    local_row += 1
+
+                col_vl.addStretch()          # push content to top; aligns rows across columns
+                col_frames_layout.addWidget(col_frame, 1)
+
+            grid_outer.addLayout(col_frames_layout, 1)
+            cl.addWidget(grid_container, 1)
+
             self._set_edit_enabled(False)
-            self._refresh_summary()  # populate summary on open
+            self._refresh_summary()
 
             body_row.addWidget(compat_frame, 1)
 
@@ -319,6 +385,89 @@ class ComplexitySettingsDialog(QDialog):
         shell_layout.addLayout(body_row, 1)
         outer.addWidget(shell)
         self._apply_styles()
+
+        # Compat-only: auto-fit to 92 % screen height
+        if self._show_compatibility and not self._show_complexity:
+            from PySide6.QtGui import QGuiApplication
+            screen = QGuiApplication.primaryScreen()
+            if screen:
+                sg = screen.availableGeometry()
+                h = int(sg.height() * 0.92)
+                w = min(int(sg.width() * 0.90), 1400)
+                self.resize(w, h)
+                self.setMinimumHeight(h)
+
+    # ── Band Scale Preview ────────────────────────────────────────────────────
+    def _build_band_preview(self) -> QFrame:
+        """
+        Visual band-scale preview that fills the empty gap below the bands
+        table.  Each band renders as a proportional coloured horizontal bar.
+        """
+        preview = QFrame()
+        preview.setObjectName("bandPreviewFrame")
+        pl = QVBoxLayout(preview)
+        pl.setContentsMargins(16, 14, 16, 14)
+        pl.setSpacing(10)
+
+        hdr = QLabel("Band Scale Preview")
+        hdr.setObjectName("complexitySectionTitle")
+        pl.addWidget(hdr)
+
+        sub = QLabel("Relative bar width represents the score range of each level")
+        sub.setObjectName("complexitySectionSub")
+        pl.addWidget(sub)
+
+        # Compute max display range (cap ∞ at 80 for visual)
+        max_range = max((min(e, 80) - s + 1) for _, s, e in self._bands) or 1
+
+        for i, (lv, s, e) in enumerate(self._bands):
+            color = self.BAND_COLORS[i]
+            rng   = min(e, 80) - s + 1
+            ratio = max(rng / max_range, 0.08)
+
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(10)
+
+            lv_lbl = QLabel(lv)
+            lv_lbl.setObjectName("bandPreviewLevelLabel")
+            lv_lbl.setFixedWidth(72)
+            lv_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            row_layout.addWidget(lv_lbl)
+
+            # Proportional coloured bar using stretch factors
+            bar_wrap = QHBoxLayout()
+            bar_wrap.setContentsMargins(0, 0, 0, 0)
+            bar_wrap.setSpacing(0)
+
+            bar = QFrame()
+            bar.setObjectName(f"bandBar_{i}")
+            bar.setFixedHeight(22)
+            bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            bar.setStyleSheet(
+                f"QFrame#bandBar_{i} {{"
+                f"  background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
+                f"    stop:0 {color}, stop:1 {color}88);"
+                f"  border-radius: 5px;"
+                f"  min-width: {max(int(ratio * 220), 18)}px;"
+                f"}}"
+            )
+            bar_wrap.addWidget(bar, int(ratio * 10))
+            bar_wrap.addStretch(max(int((1 - ratio) * 10), 1))
+
+            bar_container = QWidget()
+            bar_container.setLayout(bar_wrap)
+            row_layout.addWidget(bar_container, 1)
+
+            range_str = f"{s} – ∞" if e >= 999 else f"{s} – {e}"
+            range_lbl = QLabel(range_str)
+            range_lbl.setObjectName("bandPreviewRangeLabel")
+            range_lbl.setFixedWidth(58)
+            range_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            row_layout.addWidget(range_lbl)
+
+            pl.addLayout(row_layout)
+
+        return preview
 
     # ── helpers ───────────────────────────────────────────────────────────────
     def _section_hdr(self, title, sub):
@@ -370,7 +519,7 @@ class ComplexitySettingsDialog(QDialog):
         row = QFrame()
         row.setObjectName("complexityRowEven" if idx % 2 == 0 else "complexityRowOdd")
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(16, 8, 16, 8)
+        rl.setContentsMargins(6, 2, 6, 2)
         rl.setSpacing(8)
         lb = QLabel(label)
         lb.setObjectName("complexityScenarioLabel")
@@ -391,9 +540,18 @@ class ComplexitySettingsDialog(QDialog):
         rl = QHBoxLayout(row)
         rl.setContentsMargins(16, 8, 16, 8)
         rl.setSpacing(8)
+
+        # Coloured left-edge indicator for the band level
+        indicator = QFrame()
+        indicator.setFixedSize(4, 22)
+        indicator.setStyleSheet(
+            f"background: {self.BAND_COLORS[idx]}; border-radius: 2px;"
+        )
+        rl.addWidget(indicator)
+
         lb = QLabel(level)
         lb.setObjectName("complexityScenarioLabel")
-        lb.setMinimumWidth(80)
+        lb.setMinimumWidth(72)
         ss = self._spin(start, 65)
         es = self._spin(end, 65)
         sm = self._sbtn("\u2212")
@@ -415,63 +573,51 @@ class ComplexitySettingsDialog(QDialog):
         return row, ss, es
 
     def _scenario_status_row(self, scenario: str, is_handled: bool, idx: int):
-        """Single-row table entry: scenario name + toggle badge."""
         row = QFrame()
-        row.setObjectName("complexityRowEven" if idx % 2 == 0 else "complexityRowOdd")
+        row.setObjectName("compatRowEven" if idx % 2 == 0 else "compatRowOdd")
         rl = QHBoxLayout(row)
-        rl.setContentsMargins(16, 8, 16, 8)
-        rl.setSpacing(8)
+        rl.setContentsMargins(10, 3, 10, 3)
+        rl.setSpacing(6)
 
         lb = QLabel(scenario)
         lb.setObjectName("complexityScenarioLabel")
 
         badge = QPushButton()
         badge.setObjectName("statusBadgeHandled" if is_handled else "statusBadgeNotHandled")
-        badge.setFixedSize(140, 30)
+        badge.setFixedSize(80, 18)
         badge.setProperty("handled", is_handled)
         self._update_badge_text(badge, is_handled)
         badge.clicked.connect(lambda _, b=badge, s=scenario: self._toggle_status(b, s))
-        badge.setEnabled(False)  # disabled until edit mode
+        badge.setEnabled(False)
 
         rl.addWidget(lb, 1)
         rl.addWidget(badge)
         return row, badge
 
     def _update_badge_text(self, badge: QPushButton, is_handled: bool):
-        if is_handled:
-            badge.setText("✓  Handled")
-        else:
-            badge.setText("○  Not Handled")
+        badge.setText("✓ Handled" if is_handled else "○")
 
     def _toggle_status(self, badge: QPushButton, scenario: str):
-        """Toggle handled/not-handled when in edit mode."""
-        currently_handled = badge.property("handled")
-        new_state = not currently_handled
+        new_state = not badge.property("handled")
         badge.setProperty("handled", new_state)
         self._update_badge_text(badge, new_state)
-        # Re-apply object name to trigger stylesheet update
         badge.setObjectName("statusBadgeHandled" if new_state else "statusBadgeNotHandled")
-        badge.setStyle(badge.style())  # force style refresh
-        self._refresh_summary()  # keep summary in sync
+        badge.setStyle(badge.style())
+        self._refresh_summary()
 
     def _refresh_summary(self):
-        """Update the handled-scenarios summary box."""
         if not hasattr(self, "_status_btns") or not hasattr(self, "_summary_text_lbl"):
             return
         handled_list = [sc for sc, badge in self._status_btns.items() if badge.property("handled")]
         count = len(handled_list)
         total = len(self._status_btns)
         self._summary_count_lbl.setText(f"{count} / {total}")
-        if handled_list:
-            self._summary_text_lbl.setText("  •  ".join(handled_list))
-            self._summary_text_lbl.setVisible(True)
-        else:
-            self._summary_text_lbl.setText("None marked as handled yet.")
-            self._summary_text_lbl.setVisible(True)
+        text = "  •  ".join(handled_list) if handled_list else "None marked as handled yet."
+        self._summary_text_lbl.setText(text)
+        self._summary_text_lbl.setVisible(True)
 
     # ── Compatibility edit actions ─────────────────────────────────────────────
     def _enable_edit_mode(self):
-        """Show warning dialog before entering edit mode."""
         msg = QMessageBox(self)
         msg.setWindowTitle("Modify Scenarios")
         msg.setIcon(QMessageBox.Warning)
@@ -479,41 +625,32 @@ class ComplexitySettingsDialog(QDialog):
         msg.setInformativeText(
             "This will change which C scenarios are marked as handled by your system.\n\n"
             "Click each scenario's status badge to toggle between Handled / Not Handled.\n"
-            "Use Save Changesto apply or Cancel to discard."
+            "Use Save Changes to apply or Cancel to discard."
         )
         msg.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         msg.setDefaultButton(QMessageBox.Ok)
         msg.button(QMessageBox.Ok).setText("  Proceed  ")
         msg.button(QMessageBox.Cancel).setText("  Cancel  ")
-
         if msg.exec() == QMessageBox.Ok:
-            # Snapshot current state for cancel
             self._handled_snapshot = {
-                sc for sc, badge in self._status_btns.items()
-                if badge.property("handled")
+                sc for sc, badge in self._status_btns.items() if badge.property("handled")
             }
             self._edit_mode = True
             self._set_edit_enabled(True)
 
     def _set_edit_enabled(self, enabled: bool):
-        """Toggle between view-only and edit mode."""
         for badge in self._status_btns.values():
             badge.setEnabled(enabled)
-
         self.save_edit_btn.setVisible(enabled)
         self.cancel_edit_btn.setVisible(enabled)
         self.modify_btn.setVisible(not enabled)
-
-        # Visual cue: highlight table border in edit mode
         if enabled:
             for badge in self._status_btns.values():
                 badge.setStyle(badge.style())
 
     def _save_changes(self):
-        """Persist changes to JSON and exit edit mode."""
         self._handled = {
-            sc for sc, badge in self._status_btns.items()
-            if badge.property("handled")
+            sc for sc, badge in self._status_btns.items() if badge.property("handled")
         }
         _save_handled_scenarios(self._handled)
         QMessageBox.information(self, "Saved", "Handled scenarios saved successfully.")
@@ -521,39 +658,31 @@ class ComplexitySettingsDialog(QDialog):
         self._set_edit_enabled(False)
 
     def _cancel_edit(self):
-        """Discard unsaved edits and restore the snapshot."""
         for sc, badge in self._status_btns.items():
-            was_handled = sc in self._handled_snapshot
-            badge.setProperty("handled", was_handled)
-            self._update_badge_text(badge, was_handled)
-            badge.setObjectName("statusBadgeHandled" if was_handled else "statusBadgeNotHandled")
+            was = sc in self._handled_snapshot
+            badge.setProperty("handled", was)
+            self._update_badge_text(badge, was)
+            badge.setObjectName("statusBadgeHandled" if was else "statusBadgeNotHandled")
             badge.setStyle(badge.style())
         self._edit_mode = False
         self._set_edit_enabled(False)
         self._refresh_summary()
 
     def _on_save(self):
-        """Save & Close — used only for complexity settings (Fix 4)."""
         self.accept()
 
     def _on_reset_defaults(self):
-        """FIX 5: Reset all weight spinboxes and band spinboxes to built-in defaults."""
         reply = QMessageBox.question(
             self, "Reset to Defaults",
             "Reset all weights and complexity bands to their default values?",
-            QMessageBox.Yes | QMessageBox.No,
-            QMessageBox.No
+            QMessageBox.Yes | QMessageBox.No, QMessageBox.No
         )
         if reply != QMessageBox.Yes:
             return
-
-        # Reset weight spinboxes
         default_w = {sc: val for sc, val in self.DEFAULT_WEIGHTS}
         for sc, sp in self._weight_spins:
             if sc in default_w:
                 sp.setValue(default_w[sc])
-
-        # Reset band spinboxes
         default_b = {lv: (s, e) for lv, s, e in self.DEFAULT_BANDS}
         for lv, ss, es in self._band_spins:
             if lv in default_b:
@@ -564,49 +693,55 @@ class ComplexitySettingsDialog(QDialog):
         self.setStyleSheet("""
             QDialog, QFrame#complexityDialogShell { background: #0D1B2A; }
             QWidget { background: #0D1B2A; color: #C8D8E8; }
-            QLabel#complexityDialogTitle  { color: white; font-size: 21px; font-weight: 900; }
+
+            /* ── Buttons ── */
             QPushButton#complexitySaveBtn {
                 background: #27AE60; color: white; border: none;
-                border-radius: 14px; font-size: 14px; font-weight: 800;
+                border-radius: 12px; font-size: 14px; font-weight: 800;
             }
             QPushButton#complexitySaveBtn:hover { background: #2ECC71; }
             QPushButton#complexityDefaultBtn {
                 background: #1A3050; color: #8AAAC8;
                 border: 2px solid #1D3347;
-                border-radius: 14px; font-size: 14px; font-weight: 800;
+                border-radius: 12px; font-size: 14px; font-weight: 800;
             }
             QPushButton#complexityDefaultBtn:hover {
                 background: #E67E22; color: white; border-color: #F39C12;
             }
             QPushButton#complexityCloseBtn {
                 background: #C0392B; color: white; border: none;
-                border-radius: 14px; font-size: 14px; font-weight: 800;
+                border-radius: 12px; font-size: 14px; font-weight: 800;
             }
             QPushButton#complexityCloseBtn:hover { background: #E74C3C; }
+
+            /* ── Section typography ── */
             QLabel#complexitySectionTitle { color: white; font-size: 15px; font-weight: 900; }
             QLabel#complexitySectionSub   { color: #8899AA; font-size: 11px; }
-            QFrame#complexityTableInner   {
+
+            /* ── Weightage / band tables ── */
+            QFrame#complexityTableInner {
                 background: #101E2E; border: 1px solid #1D3347; border-radius: 10px;
             }
-            QFrame#complexityTableHeader  {
+            QFrame#complexityTableHeader {
                 background: #162840; border-bottom: 1px solid #1D3347;
                 border-top-left-radius: 10px; border-top-right-radius: 10px;
             }
             QLabel#complexityColHeader    { color: white; font-weight: 800; font-size: 12px; }
-            QFrame#complexityRowEven      { background: #101E2E; }
-            QFrame#complexityRowOdd       { background: #0D1B2A; }
-            QLabel#complexityScenarioLabel { color: #C8D8E8; font-size: 12px; }
+            QFrame#complexityRowEven      { background: #101E2E; max-height: 26px; }
+            QFrame#complexityRowOdd       { background: #0D1B2A; max-height: 26px; }
+            QLabel#complexityScenarioLabel { color: #C8D8E8; font-size: 9px; }
             QPushButton#complexityStepBtn {
                 background: #1A3050; color: #1E90FF; border: 1px solid #1D3347;
                 border-radius: 8px; font-size: 15px; font-weight: 900;
             }
             QPushButton#complexityStepBtn:hover { background: #1E90FF; color: white; }
             QPushButton#complexityStepPlusBtn {
-                background: #2ECC71; color: white;
-                border: 2px solid #27AE60;
+                background: #2ECC71; color: white; border: 2px solid #27AE60;
                 border-radius: 8px; font-size: 18px; font-weight: 900;
             }
-            QPushButton#complexityStepPlusBtn:hover { background: #58D68D; color: white; border-color: #2ECC71; }
+            QPushButton#complexityStepPlusBtn:hover {
+                background: #58D68D; color: white; border-color: #2ECC71;
+            }
             QSpinBox#complexitySpinBox {
                 background: #101E2E; color: white; border: 1px solid #1D3347;
                 border-radius: 8px; font-size: 13px; font-weight: 700; padding: 4px;
@@ -615,60 +750,83 @@ class ComplexitySettingsDialog(QDialog):
             QScrollBar:vertical { background: #0D1B2A; width: 8px; border-radius: 4px; }
             QScrollBar::handle:vertical { background: #1D3347; border-radius: 4px; min-height: 20px; }
 
+            /* ── Band Scale Preview ── */
+            QFrame#bandPreviewFrame {
+                background: #0A1628; border: 1px solid #1D3347; border-radius: 10px;
+            }
+            QLabel#bandPreviewLevelLabel {
+                color: #C8D8E8; font-size: 11px; font-weight: 700;
+            }
+            QLabel#bandPreviewRangeLabel {
+                color: #8899AA; font-size: 11px; font-weight: 600;
+            }
+
             /* ── Handled Scenarios Summary Box ── */
             QFrame#handledSummaryBox {
-                background: #0A1E10; border: 1px solid #27AE60;
-                border-radius: 10px;
+                background: #0A1E10; border: 1px solid #27AE60; border-radius: 10px;
             }
-            QLabel#handledSummaryTitle {
-                color: #2ECC71; font-size: 12px; font-weight: 900;
-            }
-            QLabel#handledSummaryCount {
+            QLabel#handledSummaryTitle  { color: #2ECC71; font-size: 12px; font-weight: 900; }
+            QLabel#handledSummaryCount  {
                 color: #27AE60; font-size: 12px; font-weight: 800;
                 background: #1A5C35; border-radius: 6px; padding: 2px 8px;
             }
-            QLabel#handledSummaryText {
-                color: #8ECFA8; font-size: 11px; font-weight: 600;
-                line-height: 1.5;
+            QLabel#handledSummaryText   {
+                color: #8ECFA8; font-size: 11px; font-weight: 600; line-height: 1.5;
+            }
+
+            /* ── Compat 4-column grid ── */
+            QFrame#compatGridContainer  { background: transparent; }
+            QFrame#compatColFrame {
+                background: #101E2E; border: 1px solid #1D3347; border-radius: 8px;
+            }
+            QFrame#compatRowEven        { background: #101E2E; max-height: 26px; }
+            QFrame#compatRowOdd         { background: #0D1B2A; max-height: 26px; }
+
+            /* ── Compat group headers ── */
+            QFrame#compatSectionHdr {
+                background: #162840; border-radius: 3px;
+                border-left: 3px solid #1E90FF;
+                margin: 1px 2px 1px 2px; max-height: 18px;
+            }
+            QLabel#compatSectionHdrLabel {
+                color: #7EB8E8; font-size: 8px; font-weight: 900;
+                letter-spacing: 0.3px; padding: 0px;
             }
 
             /* ── Compatibility status badges ── */
             QPushButton#statusBadgeHandled {
                 background: #1A5C35; color: #2ECC71;
-                border: 1px solid #27AE60; border-radius: 8px;
-                font-size: 12px; font-weight: 800;
+                border: 1px solid #27AE60; border-radius: 4px;
+                font-size: 9px; font-weight: 800; padding: 0 2px;
             }
-            QPushButton#statusBadgeHandled:hover:enabled {
-                background: #27AE60; color: white; cursor: pointer;
-            }
-            QPushButton#statusBadgeHandled:disabled {
+            QPushButton#statusBadgeHandled:hover:enabled  { background: #27AE60; color: white; }
+            QPushButton#statusBadgeHandled:disabled       {
                 background: #1A5C35; color: #2ECC71; border-color: #27AE60;
             }
             QPushButton#statusBadgeNotHandled {
-                background: #1E2A38; color: #7A8FA0;
-                border: 1px solid #2A3F55; border-radius: 8px;
-                font-size: 12px; font-weight: 800;
+                background: #1E2A38; color: #556677;
+                border: 1px solid #2A3F55; border-radius: 4px;
+                font-size: 11px; font-weight: 800; padding: 0 2px;
             }
             QPushButton#statusBadgeNotHandled:hover:enabled {
                 background: #1A3050; color: #C8D8E8; border-color: #1E90FF;
             }
-            QPushButton#statusBadgeNotHandled:disabled {
-                background: #1E2A38; color: #556677; border-color: #1D3347;
+            QPushButton#statusBadgeNotHandled:disabled    {
+                background: #1E2A38; color: #445566; border-color: #1D3347;
             }
 
             /* ── Compat action buttons ── */
             QPushButton#compatModifyBtn {
-                background: #162840; color: #8AAAC8;
-                border: 2px solid #1D3347; border-radius: 10px;
-                font-size: 12px; font-weight: 800;
+                background: #162840; color: #8AAAC8; border: 2px solid #1D3347;
+                border-radius: 10px; font-size: 12px; font-weight: 800;
             }
-            QPushButton#compatModifyBtn:hover { background: #1E4070; color: white; border-color: #1E90FF; }
+            QPushButton#compatModifyBtn:hover   { background: #1E4070; color: white; border-color: #1E90FF; }
             QPushButton#compatSaveEditBtn {
                 background: #1A5C35; color: #2ECC71;
                 border: 1px solid #27AE60; border-radius: 10px;
                 font-size: 12px; font-weight: 800;
             }
-            QPushButton#compatSaveEditBtn:hover { background: #27AE60; color: white; }
+            QPushButton#compatSaveEditBtn:hover  { background: #27AE60; color: white; }
             QPushButton#compatCancelEditBtn {
                 background: #2C1A1A; color: #E74C3C;
                 border: 1px solid #C0392B; border-radius: 10px;
@@ -698,7 +856,6 @@ def create_complexity_page(win):
     layout.setContentsMargins(4, 4, 4, 4)
     layout.setSpacing(14)
 
-    # ── Top Row: title on left, settings buttons on top-right ─────────────────
     header_row = QHBoxLayout()
     title = QLabel("Complexity & Compatibility")
     title.setObjectName("sectionTitle")
@@ -721,7 +878,6 @@ def create_complexity_page(win):
     header_row.addWidget(win.compatibility_settings_btn)
     layout.addLayout(header_row)
 
-    # ── Card ─────────────────────────────────────────────
     report_card = QFrame()
     report_card.setObjectName("pageCard")
     rc_layout = QVBoxLayout(report_card)
@@ -730,7 +886,6 @@ def create_complexity_page(win):
 
     rc_layout.addWidget(SectionTitle("Report", ""))
 
-    # ── Input + Browse/Clear in the same row ─────────────────────────────────
     file_row = QHBoxLayout()
     file_row.setSpacing(10)
 
@@ -755,7 +910,6 @@ def create_complexity_page(win):
     file_row.addWidget(win.complexity_clear_btn)
     rc_layout.addLayout(file_row)
 
-    # ── Generate + Open Report Buttons centered below the card content ─────────
     gen_row = QHBoxLayout()
     gen_row.addStretch()
 
@@ -776,7 +930,7 @@ def create_complexity_page(win):
     )
     win.complexity_open_report_btn.setObjectName("pickerButton")
     win.complexity_open_report_btn.setFixedSize(160, 40)
-    win.complexity_open_report_btn.setEnabled(False)  # enabled once a report is selected
+    win.complexity_open_report_btn.setEnabled(False)
 
     gen_row.addWidget(win.complexity_generate_btn)
     gen_row.addSpacing(12)
@@ -795,7 +949,6 @@ def create_complexity_page(win):
     info_lbl.setWordWrap(True)
     rc_layout.addWidget(info_lbl)
 
-    # ── Progress + Logs ──────────────────────────────────────────────────────
     win.complexity_progress_bar = QProgressBar()
     win.complexity_progress_bar.setRange(0, 100)
     win.complexity_progress_bar.setValue(0)
@@ -820,14 +973,12 @@ def create_complexity_page(win):
     layout.addWidget(report_card)
     layout.addStretch()
 
-    # ── State ────────────────────────────────────────────────────────────────
     win._complexity_weights = None
     win._complexity_bands = None
     win._handled_scenarios = _load_handled_scenarios()
     win._cx_thread = None
     win._cx_worker = None
 
-    # ── Actions ──────────────────────────────────────────────────────────────
     def browse_report():
         path, _ = QFileDialog.getOpenFileName(
             win, "Select Report Excel", "",
@@ -843,10 +994,7 @@ def create_complexity_page(win):
 
     def open_report():
         import subprocess, sys
-        from PySide6.QtCore import QUrl
-        from PySide6.QtGui import QDesktopServices
         from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QPushButton, QLabel as _QLabel
-
         excel_path = win.complexity_report_display.text().strip()
         html_path  = getattr(win, "_last_complexity_html", "") or ""
 
@@ -858,7 +1006,6 @@ def create_complexity_page(win):
             else:
                 subprocess.Popen(["xdg-open", path])
 
-        # Build list of available files
         choices = []
         if excel_path and os.path.isfile(excel_path):
             choices.append(("📊  Open Excel Report", excel_path))
@@ -868,54 +1015,36 @@ def create_complexity_page(win):
         if not choices:
             QMessageBox.warning(win, "No Report", "No valid report file is selected.")
             return
-
         if len(choices) == 1:
             _open(choices[0][1])
             return
 
-        # Both Excel and HTML available — show choice dialog
         dlg = QDialog(win)
         dlg.setWindowTitle("Open Report")
         dlg.setFixedSize(380, 120)
         vl = QVBoxLayout(dlg)
         vl.setSpacing(12)
         vl.addWidget(_QLabel("Which report would you like to open?"))
-        btn_row = QHBoxLayout()
+        btn_row2 = QHBoxLayout()
         for label, fpath in choices:
             btn = QPushButton(label)
             btn.setFixedHeight(38)
             btn.clicked.connect(lambda _, p=fpath, d=dlg: (_open(p), d.accept()))
-            btn_row.addWidget(btn)
-        vl.addLayout(btn_row)
+            btn_row2.addWidget(btn)
+        vl.addLayout(btn_row2)
         dlg.exec()
 
-    # Complexity Settings = weights + bands only
     def open_complexity_settings():
-        weights = win._complexity_weights
-        bands = win._complexity_bands
-        if weights is None:
-            weights = [list(r) for r in ComplexitySettingsDialog.DEFAULT_WEIGHTS]
-        if bands is None:
-            bands = [list(r) for r in ComplexitySettingsDialog.DEFAULT_BANDS]
-
-        dlg = ComplexitySettingsDialog(
-            win,
-            weights=weights,
-            bands=bands,
-            handled_scenarios=None
-        )
+        weights = win._complexity_weights or [list(r) for r in ComplexitySettingsDialog.DEFAULT_WEIGHTS]
+        bands   = win._complexity_bands   or [list(r) for r in ComplexitySettingsDialog.DEFAULT_BANDS]
+        dlg = ComplexitySettingsDialog(win, weights=weights, bands=bands, handled_scenarios=None)
         if dlg.exec():
             win._complexity_weights = dlg.get_weights()
-            win._complexity_bands = dlg.get_bands()
+            win._complexity_bands   = dlg.get_bands()
 
-    # Compatibility Settings = handled scenarios only
     def open_compatibility_settings():
-        dlg = ComplexitySettingsDialog(
-            win,
-            weights=None,
-            bands=None,
-            handled_scenarios=win._handled_scenarios
-        )
+        dlg = ComplexitySettingsDialog(win, weights=None, bands=None,
+                                       handled_scenarios=win._handled_scenarios)
         if dlg.exec():
             win._handled_scenarios = dlg.get_handled_scenarios()
             _save_handled_scenarios(win._handled_scenarios)
@@ -955,21 +1084,17 @@ def create_complexity_page(win):
     def generate():
         report_path = win.complexity_report_display.text().strip()
         if not report_path or not os.path.isfile(report_path):
-            QMessageBox.warning(
-                win, "No Report Loaded",
-                "No report is loaded.\n\nSelect a report file first."
-            )
+            QMessageBox.warning(win, "No Report Loaded",
+                                "No report is loaded.\n\nSelect a report file first.")
             return
 
         target_entry = next(
-            (s for s in getattr(win, "available_sources", []) if s.get("type") == "target"),
-            None
+            (s for s in getattr(win, "available_sources", []) if s.get("type") == "target"), None
         )
         if not target_entry:
-            QMessageBox.warning(
-                win, "No Source Loaded",
-                "No target source is loaded.\n\nPlease go to the Input page and load the target source."
-            )
+            QMessageBox.warning(win, "No Source Loaded",
+                                "No target source is loaded.\n\n"
+                                "Please go to the Input page and load the target source.")
             return
 
         src = target_entry["path"]
@@ -977,8 +1102,8 @@ def create_complexity_page(win):
             QMessageBox.warning(win, "Source Not Found", f"Target folder not found:\n{src}")
             return
 
-        weights = win._complexity_weights if win._complexity_weights else None
-        bands = win._complexity_bands if win._complexity_bands else None
+        weights = win._complexity_weights or None
+        bands   = win._complexity_bands   or None
 
         _set_running_ui(True)
         win.complexity_progress_bar.setValue(0)
@@ -989,15 +1114,12 @@ def create_complexity_page(win):
             def __init__(self, worker):
                 super().__init__()
                 self._worker = worker
-
             def run(self):
                 self._worker.run()
 
         worker = ComplexityAppendWorker(
-            report_path=report_path,
-            source_folder=src,
-            weights=weights,
-            bands=bands,
+            report_path=report_path, source_folder=src,
+            weights=weights, bands=bands,
             handled_scenarios=win._handled_scenarios,
         )
         thread = _CxThread(worker)
@@ -1006,7 +1128,6 @@ def create_complexity_page(win):
         worker.log.connect(_on_log)
         worker.finished.connect(_on_generate_done)
         worker.error.connect(_on_generate_error)
-
         worker.finished.connect(thread.quit)
         worker.error.connect(thread.quit)
         worker.finished.connect(worker.deleteLater)
@@ -1015,10 +1136,8 @@ def create_complexity_page(win):
 
         win._cx_thread = thread
         win._cx_worker = worker
-
         thread.start()
 
-    # ── Connect ──────────────────────────────────────────────────────────────
     win.complexity_browse_btn.clicked.connect(browse_report)
     win.complexity_clear_btn.clicked.connect(clear_report)
     win.complexity_open_report_btn.clicked.connect(open_report)

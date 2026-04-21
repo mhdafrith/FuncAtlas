@@ -596,7 +596,7 @@ class BuiltinExtractionWorker(QObject):
                         f'{len(self.function_filter)} listed functions from target.'
                     )
 
-                extracted, seen_names = 0, set()
+                extracted, seen_pairs = 0, set()
                 index_data = {}
 
                 for file_idx, (file_path, info) in enumerate(records.items(), 1):
@@ -605,28 +605,41 @@ class BuiltinExtractionWorker(QObject):
 
                     for fn in info.get('functions', []):
                         key = normalize_name(fn)
-                        if not key or key in seen_names:
+                        if not key:
+                            continue
+                        # Deduplicate by (function_name, file_path) — same name in
+                        # different files are distinct functions and must both appear
+                        pair_key = (key, normalize_path(file_path))
+                        if pair_key in seen_pairs:
                             continue
                         # Filter: skip functions NOT in the list (target only)
                         if apply_filter and key not in self.function_filter:
                             continue
-                        # Always build the index (all functions, even for refs)
-                        index_data[fn.lower()] = {"display_name": fn, "source_file": file_path}
                         body = extract_function_body(file_path, fn)
+                        # .txt filename: encode full filepath + function name so the
+                        # filename itself is human-readable and unique per (fn, file).
+                        # e.g. a/b.c -> add  =>  a__b.c__add.txt
+                        #      e/b.c -> add  =>  e__b.c__add.txt
+                        norm_fp   = normalize_path(file_path)
+                        # Replace path separators with __ so the name is a flat file
+                        safe_path = re.sub(r'[/\\]', '__', norm_fp).strip('_')
+                        # Strip characters that are illegal in filenames
+                        safe_path = re.sub(r'[<>:"|?*]', '_', safe_path)
+                        txt_name  = f'{safe_path}__{fn}.txt'
+                        # index key must be unique per (fn, file) pair
+                        index_key = f'{fn.lower()}|{norm_fp}'
                         try:
-                            with open(os.path.join(base_out, f'{fn}.txt'), 'w',
+                            with open(os.path.join(base_out, txt_name), 'w',
                                       encoding='utf-8', errors='ignore') as fh:
                                 fh.write(body)
-                            seen_names.add(key)
+                            # Record in index ONLY when .txt is successfully written
+                            index_data[index_key] = {"display_name": fn, "source_file": file_path,
+                                                      "txt_name": txt_name}
+                            seen_pairs.add(pair_key)
                             extracted += 1
                         except Exception as e:
-                            self.log.emit(f'Could not write {fn}.txt: {e}')
+                            self.log.emit(f'Could not write {txt_name}: {e}')
 
-                # For reference bases without a filter we still need the full index
-                if not apply_filter:
-                    for fp, info in records.items():
-                        for fn in info.get('functions', []):
-                            index_data[fn.lower()] = {"display_name": fn, "source_file": fp}
 
                 try:
                     with open(os.path.join(base_out, '_index.json'), 'w', encoding='utf-8') as fh:

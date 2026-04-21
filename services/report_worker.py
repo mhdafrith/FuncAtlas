@@ -26,7 +26,7 @@ from openpyxl.utils import get_column_letter
 from PySide6.QtCore import QObject, Signal
 
 from core.utils import read_source_file,\
-     normalize_path
+     normalize_path, normalize_name
 
 # ── Complexity helpers (shared with complexity_worker) ────────────────────────
 CONSTRUCTS = [
@@ -144,6 +144,50 @@ class ReportCompareWorker(QObject):
             return u'\u2014', u'\u2014'
         return best_label, best_path
 
+    def _trim_path(self, full_path: str) -> str:
+        """Trim an absolute path to start from the target folder name.
+        e.g. D:\Projects\GUI2C\...\1BB00650_Target\src\BIOS\... 
+          →  1BB00650_Target\src\BIOS\...
+        Falls back to the full path if no known anchor is found.
+        """
+        if not full_path or full_path == '\u2014':
+            return full_path
+        # Normalise separators
+        norm = os.path.normpath(full_path)
+        parts = norm.split(os.sep)
+        # Find the target label segment — try self.target_label first
+        tgt = (self.target_label or "").strip()
+        for i, p in enumerate(parts):
+            if p == tgt:
+                return os.path.join(*parts[i:])
+        # Fallback: find a part that contains common anchor keywords
+        for i, p in enumerate(parts):
+            if p.lower().startswith(("1bb", "target", "ref", "base")):
+                return os.path.join(*parts[i:])
+        return full_path
+
+    def _count_loc(self, body_text: str) -> int:
+        """Count non-empty, non-comment lines in a function body."""
+        if not body_text:
+            return 0
+        lines = body_text.splitlines()
+        count = 0
+        in_block = False
+        for line in lines:
+            s = line.strip()
+            if in_block:
+                if '*/' in s:
+                    in_block = False
+                continue
+            if s.startswith('/*'):
+                if '*/' not in s[2:]:
+                    in_block = True
+                continue
+            if s.startswith('//') or not s:
+                continue
+            count += 1
+        return count
+
     # ── Excel writer ──────────────────────────────────────────────────────────
     def _write_excel(self, rows):
         """
@@ -188,7 +232,7 @@ class ReportCompareWorker(QObject):
         ws = wb.active
         ws.title = 'Function_Match_Report'
 
-        headers = ['File Name', 'Function Name', 'Target File Path']
+        headers = ['File Name', 'Function Name', 'Target File Path', 'Total LOC']
         for lbl in self.ref_labels:
             headers.append(f'{lbl}\nMatch %')
         headers += ['Reuse/New', 'Suggested Reference Base', 'Reference base file path']
@@ -216,9 +260,18 @@ class ReportCompareWorker(QObject):
             c.font = Font(bold=True, name='Arial', size=10)
             c.alignment = left_align; c.border = bdr()
 
-            # Target File Path
-            c = ws.cell(r, col, t_file_path); col += 1
+            # Target File Path (trimmed)
+            trimmed_path = self._trim_path(t_file_path)
+            c = ws.cell(r, col, trimmed_path); col += 1
             c.font = data_font(); c.alignment = left_align; c.border = bdr()
+
+            # Total LOC (column D)
+            loc = self._count_loc(_body)
+            c = ws.cell(r, col, loc); col += 1
+            c.font = Font(name='Arial', size=10, bold=True)
+            c.alignment = pct_align; c.border = bdr()
+            if loc > 0:
+                c.fill = PatternFill('solid', fgColor='EBF3FB')
 
             # One Match % column per reference
             for pct, _rfname, _rfpath in ref_data:
@@ -258,7 +311,8 @@ class ReportCompareWorker(QObject):
         ws.column_dimensions['A'].width = 28   # File Name
         ws.column_dimensions['B'].width = 38   # Function Name
         ws.column_dimensions['C'].width = 50   # Target File Path
-        ci = 4
+        ws.column_dimensions['D'].width = 12   # Total LOC
+        ci = 5
         for _ in self.ref_labels:
             ws.column_dimensions[get_column_letter(ci)].width = 24; ci += 1
         ws.column_dimensions[get_column_letter(ci)].width = 18; ci += 1   # Reuse/New
@@ -314,15 +368,6 @@ class ReportCompareWorker(QObject):
                 self.error.emit(f'Target extraction folder not found:\n{self.target_folder}')
                 return
 
-            target_files = {}
-            for fname in sorted(os.listdir(self.target_folder)):
-                if fname.lower().endswith('.txt'):
-                    target_files[os.path.splitext(fname)[0].lower()] = (
-                        os.path.splitext(fname)[0], os.path.join(self.target_folder, fname))
-            if not target_files:
-                self.error.emit(f'No extracted .txt functions found in:\n{self.target_folder}')
-                return
-
             def _load_index(folder):
                 try:
                     with open(os.path.join(folder, '_index.json'), 'r', encoding='utf-8') as fh:
@@ -333,20 +378,33 @@ class ReportCompareWorker(QObject):
             target_index = _load_index(self.target_folder)
             ref_indexes  = [_load_index(rf) for rf in self.ref_folders]
 
+            # Build target_files from index (supports fn__hash.txt naming)
+            # index key format: 'fn_name|/full/file/path' or legacy 'fn_name'
+            target_files = {}
+            for idx_key, idx_val in target_index.items():
+                txt_name = idx_val.get('txt_name') or (idx_val.get('display_name', '') + '.txt')
+                txt_path = os.path.join(self.target_folder, txt_name)
+                if os.path.isfile(txt_path):
+                    target_files[idx_key] = (idx_val.get('display_name', idx_key), txt_path)
+            if not target_files:
+                self.error.emit(f'No extracted .txt functions found in:\n{self.target_folder}')
+                return
+
             self.progress.emit(0, 'Preparing comparison …')
             self.log.emit(
                 f'Comparing {len(target_files)} target functions against '
                 f'{len(self.ref_folders)} reference bases'
             )
 
+            # Build ref_file_maps from each ref index (supports fn__hash.txt naming)
             ref_file_maps = []
-            for ref_folder in self.ref_folders:
-                ref_map = {}
-                if os.path.isdir(ref_folder):
-                    for rname in os.listdir(ref_folder):
-                        if rname.lower().endswith('.txt'):
-                            ref_map[os.path.splitext(rname)[0].lower()] = (
-                                os.path.join(ref_folder, rname))
+            for ri, ref_folder in enumerate(self.ref_folders):
+                ref_map = {}  # idx_key -> txt_path
+                for idx_key, idx_val in ref_indexes[ri].items():
+                    txt_name = idx_val.get('txt_name') or (idx_val.get('display_name', '') + '.txt')
+                    txt_path = os.path.join(ref_folder, txt_name)
+                    if os.path.isfile(txt_path):
+                        ref_map[idx_key] = txt_path
                 ref_file_maps.append(ref_map)
 
             items       = sorted(target_files.items())
@@ -356,18 +414,51 @@ class ReportCompareWorker(QObject):
 
             def _compare_one(payload):
                 idx, item = payload
-                _, (func_display, target_path) = item
+                idx_key, (func_display, target_path) = item
                 target_text = self._read_text(target_path)
-                lower_name  = func_display.lower()
-                t_info      = target_index.get(lower_name, {})
+                # idx_key is 'fn_name|/source/file/path' (or legacy 'fn_name')
+                t_info      = target_index.get(idx_key, {})
                 t_src_full  = t_info.get('source_file', '') or ''
                 t_file_name = os.path.basename(t_src_full) or u'\u2014'
                 t_file_path = t_src_full or u'\u2014'
 
+                # For ref matching: look up by idx_key first (exact fn+file match).
+                # If not found, scan ALL ref-index entries whose display_name matches
+                # the function name (handles same-named funcs in different files) and
+                # pick the candidate with the highest similarity score.
+                fn_lower = func_display.lower()
                 ref_data = []
                 for ri, ref_map in enumerate(ref_file_maps):
-                    ref_path    = ref_map.get(lower_name)
-                    r_info      = ref_indexes[ri].get(lower_name, {})
+                    # 1. Exact composite-key lookup
+                    ref_path = ref_map.get(idx_key)
+                    r_info   = ref_indexes[ri].get(idx_key)
+
+                    # 2. Legacy name-only key (old index format)
+                    if ref_path is None:
+                        ref_path = ref_map.get(fn_lower)
+                        r_info   = ref_indexes[ri].get(fn_lower)
+
+                    # 3. Scan all entries for matching display_name (new-format
+                    #    refs where same fn exists in multiple files) — best score wins
+                    if ref_path is None:
+                        best_pct_scan  = -1
+                        best_path_scan = None
+                        best_info_scan = None
+                        for rk, rv in ref_indexes[ri].items():
+                            if normalize_name(rv.get('display_name', '')) == normalize_name(func_display):
+                                candidate_path = ref_map.get(rk)
+                                if candidate_path and os.path.isfile(candidate_path):
+                                    candidate_text = self._read_text(candidate_path)
+                                    candidate_pct  = self._match_percent(target_text, candidate_text)
+                                    if candidate_pct > best_pct_scan:
+                                        best_pct_scan  = candidate_pct
+                                        best_path_scan = candidate_path
+                                        best_info_scan = rv
+                        if best_path_scan is not None:
+                            ref_path = best_path_scan
+                            r_info   = best_info_scan
+
+                    r_info      = r_info or {}
                     r_src_full  = r_info.get('source_file', '') or ''
                     r_file_name = os.path.basename(r_src_full) or u'\u2014'
                     r_file_path = r_src_full or u'\u2014'
