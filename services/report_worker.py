@@ -92,6 +92,7 @@ class ReportCompareWorker(QObject):
         # Complexity settings from Complexity & Compatibility page
         self.weights = {n: w for n, w in (weights or [])} if weights else dict(DEFAULT_WEIGHTS)
         self.bands   = bands or list(DEFAULT_BANDS)
+        self._cancel_requested = False
 
     # ── helpers ───────────────────────────────────────────────────────────────
     def _read_text(self, path):
@@ -480,10 +481,17 @@ class ReportCompareWorker(QObject):
                                for i, item in enumerate(items)]
                     done = 0
                     for future in as_completed(futures):
+                        if self._cancel_requested:
+                            executor.shutdown(wait=False, cancel_futures=True)
+                            self.error.emit('__CANCELLED__')
+                            return
                         idx, row = future.result(); rows[idx] = row; done += 1
                         self.progress.emit(int((done / total) * 92), f'Comparing … {done}/{total}')
             else:
                 for idx, item in enumerate(items):
+                    if self._cancel_requested:
+                        self.error.emit('__CANCELLED__')
+                        return
                     _, row = _compare_one((idx, item)); rows[idx] = row
                     self.progress.emit(int(((idx + 1) / total) * 92),
                                        f'Comparing … {idx + 1}/{total}')

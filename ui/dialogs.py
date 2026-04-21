@@ -22,7 +22,8 @@ class HelpOverlayDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle(title)
         self.setModal(True)
-        self.setFixedSize(760, 860)
+        self.setFixedSize(760, 620)
+        self.setWindowFlag(Qt.WindowContextHelpButtonHint, False)
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -31,32 +32,40 @@ class HelpOverlayDialog(QDialog):
         shell = QFrame()
         shell.setObjectName('helpDialogShell')
         shell_layout = QVBoxLayout(shell)
-        shell_layout.setContentsMargins(26, 24, 26, 24)
-        shell_layout.setSpacing(16)
+        shell_layout.setContentsMargins(32, 28, 32, 28)
+        shell_layout.setSpacing(18)
 
-        # Header row
+        # ── Header ────────────────────────────────────────────────────────────
         head = QHBoxLayout()
         head.setContentsMargins(0, 0, 0, 0)
         head.setSpacing(10)
+
+        icon_lbl = QLabel("✅")
+        icon_lbl.setObjectName("helpDialogIcon")
+        icon_lbl.setFixedSize(36, 36)
+        icon_lbl.setAlignment(Qt.AlignCenter)
+
         title_lbl = QLabel(title)
         title_lbl.setObjectName('helpDialogTitle')
+        head.addWidget(icon_lbl)
         head.addWidget(title_lbl)
         head.addStretch()
-        close_btn = QPushButton('×')
-        close_btn.setObjectName('aboutDialogCloseButton')
-        close_btn.setFixedSize(42, 42)
-        close_btn.clicked.connect(self.accept)
-        head.addWidget(close_btn)
         shell_layout.addLayout(head)
 
-        # Scrollable body
+        # Thin divider
+        divider = QFrame()
+        divider.setFixedHeight(1)
+        divider.setObjectName("helpDialogDivider")
+        shell_layout.addWidget(divider)
+
+        # ── Scrollable body ───────────────────────────────────────────────────
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         body = QWidget()
         body_layout = QVBoxLayout(body)
-        body_layout.setContentsMargins(0, 0, 0, 0)
-        body_layout.setSpacing(14)
+        body_layout.setContentsMargins(0, 4, 0, 4)
+        body_layout.setSpacing(10)
 
         for index, section in enumerate(sections, start=1):
             card = QFrame()
@@ -112,6 +121,20 @@ class HelpOverlayDialog(QDialog):
         body_layout.addStretch()
         scroll.setWidget(body)
         shell_layout.addWidget(scroll, 1)
+
+        # ── Footer divider + Close button ────────────────────────────────────
+        foot_divider = QFrame()
+        foot_divider.setFixedHeight(1)
+        foot_divider.setObjectName("helpDialogDivider")
+        shell_layout.addWidget(foot_divider)
+
+        close_btn = QPushButton("Close")
+        close_btn.setObjectName("helpDialogCloseBtn")
+        close_btn.setFixedSize(120, 42)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.clicked.connect(self.accept)
+        shell_layout.addWidget(close_btn, 0, Qt.AlignRight)
+
         outer.addWidget(shell)
 
         self.setStyleSheet("""
@@ -121,60 +144,75 @@ class HelpOverlayDialog(QDialog):
                 border: 1px solid #1C8DFF;
                 border-radius: 28px;
             }
+            QFrame#helpDialogDivider {
+                background: #1B3560;
+                border: none;
+            }
+            QLabel#helpDialogIcon {
+                font-size: 20px;
+                background: transparent;
+            }
             QLabel#helpDialogTitle {
                 color: #55A6FF;
-                font-size: 21px;
+                font-size: 20px;
                 font-weight: 900;
+                background: transparent;
             }
             QFrame#helpStepCard {
                 background: #0D1C38;
                 border: 1px solid #1B4D85;
-                border-radius: 18px;
+                border-radius: 14px;
             }
             QLabel#helpStepBadge {
                 background: qlineargradient(x1:0,y1:0,x2:0,y2:1, stop:0 #78B8FF, stop:1 #3E87F5);
                 color: white;
                 border-radius: 10px;
-                font-size: 18px;
+                font-size: 16px;
                 font-weight: 900;
             }
             QLabel#helpStepTitle {
                 color: #F4F8FF;
-                font-size: 17px;
-                font-weight: 900;
+                font-size: 15px;
+                font-weight: 800;
             }
             QLabel#helpStepBody {
                 color: #90A4BE;
-                font-size: 14px;
+                font-size: 13px;
+                line-height: 1.5;
             }
             QFrame#helpFooterWarning {
                 background: #372000;
                 border-left: 4px solid #FFB21E;
-                border-radius: 14px;
+                border-radius: 10px;
             }
             QFrame#helpFooterTip {
                 background: #032C23;
                 border-left: 4px solid #00E18D;
-                border-radius: 14px;
+                border-radius: 10px;
             }
             QLabel#helpFooterText {
                 color: #D8A24A;
-                font-size: 14px;
+                font-size: 13px;
                 font-weight: 700;
             }
             QLabel#helpFooterTipText {
                 color: #76E2BC;
+                font-size: 13px;
+                font-weight: 700;
+            }
+            QPushButton#helpDialogCloseBtn {
+                background: #1A3A6E;
+                color: #A8C8FF;
+                border: 1px solid #2A5EA8;
+                border-radius: 10px;
                 font-size: 14px;
                 font-weight: 700;
             }
-            QPushButton#aboutDialogCloseButton {
-                background: transparent;
-                color: #8899AA;
-                border: none;
-                font-size: 26px;
-                font-weight: 500;
+            QPushButton#helpDialogCloseBtn:hover {
+                background: #1C8DFF;
+                color: #FFFFFF;
+                border-color: #1C8DFF;
             }
-            QPushButton#aboutDialogCloseButton:hover { color: #FFFFFF; }
         """)
 
 

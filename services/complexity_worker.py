@@ -345,6 +345,7 @@ class ComplexityAppendWorker(QObject):
             ("Complex",  41, 999),
         ]
         self.handled_scenarios = set(handled_scenarios) if handled_scenarios else set()
+        self._cancel_requested = False
 
     def run(self):
         try:
@@ -412,6 +413,9 @@ class ComplexityAppendWorker(QObject):
         body_fallback = {}   # fn_lower -> [(full_path, body)]
 
         for idx, (full_path, file_name) in enumerate(file_entries):
+            if self._cancel_requested:
+                self.error.emit('__CANCELLED__')
+                return
             pct = int((idx / len(file_entries)) * 75)
             self.progress.emit(pct, f"Scanning {file_name} …")
             functions = detect_functions_in_file(full_path)

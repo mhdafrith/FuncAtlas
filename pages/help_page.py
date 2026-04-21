@@ -31,16 +31,14 @@ def create_help_page(win):
 
     btn_row = QHBoxLayout()
     btn_row.setSpacing(12)
-    btn_how = QPushButton("📖  How to Use")
     btn_pre = QPushButton("✅  Prerequisites")
     btn_log = QPushButton("📋  View Log File")
-    for btn in (btn_how, btn_pre, btn_log):
+    for btn in (btn_pre, btn_log):
         btn.setObjectName("smallPrimaryButton")
         btn.setCursor(Qt.PointingHandCursor)
         btn.setMinimumHeight(40)
         btn_row.addWidget(btn)
     btn_row.addStretch()
-    btn_how.clicked.connect(win._show_report_how_to_use)
     btn_pre.clicked.connect(win._show_report_prerequisites)
     btn_log.clicked.connect(win._show_report_log_dialog)
     top_layout.addLayout(btn_row)
@@ -70,9 +68,7 @@ def create_help_page(win):
         txt_wrap.setContentsMargins(0, 0, 0, 0)
         txt_wrap.setSpacing(4)
         t = QLabel(title)
-        t.setStyleSheet(
-            f"color: {win.theme['text_primary']}; font-size: 15px; font-weight: 900;"
-        )
+        t.setObjectName("helpStepTitle")
         t.setWordWrap(True)
         b = QLabel(body)
         b.setObjectName("panelSubtitle")

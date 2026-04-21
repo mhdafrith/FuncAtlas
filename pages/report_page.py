@@ -74,6 +74,12 @@ def create_report_page(win):
     win.report_generate_btn.setFixedSize(172, 40)
     win.report_generate_btn.clicked.connect(win._on_report_generate)
 
+    win.report_cancel_btn = IconTextButton("Cancel", win.icons_white.icon("clear", 15))
+    win.report_cancel_btn.setObjectName("pickerButton")
+    win.report_cancel_btn.setFixedSize(110, 40)
+    win.report_cancel_btn.setVisible(False)
+    win.report_cancel_btn.clicked.connect(win._on_report_cancel)
+
     win.report_open_btn = IconTextButton("Open Report", win.icons_white.icon("link", 15))
     win.report_open_btn.setObjectName("pickerButton")
     win.report_open_btn.setFixedSize(136, 40)
@@ -81,6 +87,7 @@ def create_report_page(win):
     win.report_open_btn.clicked.connect(win._on_report_open)
 
     btn_row.addWidget(win.report_generate_btn)
+    btn_row.addWidget(win.report_cancel_btn)
     btn_row.addWidget(win.report_open_btn)
     btn_row.addStretch()
     input_layout.addLayout(btn_row)

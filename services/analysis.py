@@ -553,6 +553,7 @@ class BuiltinExtractionWorker(QObject):
         super().__init__()
         self.bases           = bases
         self.output_root     = output_root
+        self._cancel_requested = False
         # Normalised lowercase set for fast lookup; empty = no filter
         self.function_filter = (
             {normalize_name(fn) for fn in function_filter if fn}
@@ -570,6 +571,9 @@ class BuiltinExtractionWorker(QObject):
             os.makedirs(root_out, exist_ok=True)
             all_results = {}
             for base_idx, base in enumerate(self.bases, 1):
+                if self._cancel_requested:
+                    self.error.emit('__CANCELLED__')
+                    return
                 label    = clean_text(base.get('label'))
                 src_path = normalize_path(base.get('src_path',''))
                 is_target = base.get('is_target', False)
@@ -600,6 +604,9 @@ class BuiltinExtractionWorker(QObject):
                 index_data = {}
 
                 for file_idx, (file_path, info) in enumerate(records.items(), 1):
+                    if self._cancel_requested:
+                        self.error.emit('__CANCELLED__')
+                        return
                     pct = int((file_idx / total_files) * 100)
                     self.base_progress.emit(label, pct, f'Scanning {file_idx}/{total_files} files')
 

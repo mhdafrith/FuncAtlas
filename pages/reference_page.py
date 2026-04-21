@@ -30,14 +30,14 @@ def create_reference_page(win):
 
     # ── Reference Bases: multi-folder — custom list + native add ────────────
     win.ref_bases_field = FolderField(
-        "Reference Bases Folders *", "Add Folder",
+        "Reference Bases Folders ", "Add Folder",
         win.icons_white.icon("folder", 15),
         multi=True, multi_line_display=True
     )
 
     # ── Function list: native multi-file picker ──────────────────────────────
     win.ref_function_field = XlsxMultiFileField(
-        "Function List Files *.xlsx", "Choose Files",
+        "Function List Files .xlsx", "Choose Files",
         win.icons_white.icon("document", 15)
     )
 

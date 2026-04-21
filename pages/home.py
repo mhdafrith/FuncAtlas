@@ -71,16 +71,22 @@ def create_home_page(win):
         "Upload function list files, consolidated Excel, and auto-generate output.",
         win.icons_white.icon("excel", 34), accent, "Input", lambda: win.show_page("consolidated")
     ))
+    win.home_prereq_card = win.register_accent_card(PremiumCard(
+        "Prerequisites",
+        "Check required setup before running — inputs, output folder, and Excel locks.",
+        win.icons_white.icon("document", 34), accent, "View", lambda: win._show_report_prerequisites()
+    ))
 
-    for card in (win.home_ref_card, win.home_con_card):
+    for card in (win.home_ref_card, win.home_con_card, win.home_prereq_card):
         card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setMinimumHeight(200)
-        card.setMaximumHeight(16777215)  # remove height cap so card fills frame
+        card.setMaximumHeight(16777215)
 
     cards_layout.addWidget(win.home_ref_card, 1)
     cards_layout.addWidget(win.home_con_card, 1)
+    cards_layout.addWidget(win.home_prereq_card, 1)
 
-    win.home_cards = [win.home_ref_card, win.home_con_card]
+    win.home_cards = [win.home_ref_card, win.home_con_card, win.home_prereq_card]
 
     for btn, dest in [
         (win.home_ref_card.action_btn, "reference"),

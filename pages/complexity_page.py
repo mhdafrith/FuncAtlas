@@ -931,6 +931,13 @@ def create_complexity_page(win):
     win.complexity_generate_btn.setObjectName("smallPrimaryButton")
     win.complexity_generate_btn.setFixedSize(180, 40)
 
+    win.complexity_cancel_btn = IconTextButton(
+        "Cancel", win.icons_white.icon("clear", 15)
+    )
+    win.complexity_cancel_btn.setObjectName("pickerButton")
+    win.complexity_cancel_btn.setFixedSize(120, 40)
+    win.complexity_cancel_btn.setVisible(False)
+
     win.complexity_generate_html_btn = IconTextButton(
         "Generate HTML Report", win.icons_white.icon("submit", 15)
     )
@@ -945,6 +952,8 @@ def create_complexity_page(win):
     win.complexity_open_report_btn.setEnabled(False)
 
     gen_row.addWidget(win.complexity_generate_btn)
+    gen_row.addSpacing(8)
+    gen_row.addWidget(win.complexity_cancel_btn)
     gen_row.addSpacing(12)
     gen_row.addWidget(win.complexity_generate_html_btn)
     gen_row.addSpacing(12)
@@ -1064,6 +1073,9 @@ def create_complexity_page(win):
     def _set_running_ui(running: bool):
         win.complexity_generate_btn.setEnabled(not running)
         win.complexity_generate_btn.setText("Running …" if running else "Generate Report")
+        win.complexity_cancel_btn.setVisible(running)
+        win.complexity_cancel_btn.setEnabled(True)
+        win.complexity_cancel_btn.setText("Cancel")
         win.complexity_progress_bar.setVisible(running)
         win.complexity_status_lbl.setVisible(running)
         win.complexity_log.setVisible(running)
@@ -1088,10 +1100,24 @@ def create_complexity_page(win):
         win._cx_worker = None
 
     def _on_generate_error(message: str):
+        if message == '__CANCELLED__':
+            _set_running_ui(False)
+            win.complexity_status_lbl.setText("Cancelled")
+            win.complexity_log.append("⛔ Generation cancelled by user.")
+            win._cx_thread = None
+            win._cx_worker = None
+            return
         _set_running_ui(False)
         QMessageBox.critical(win, "Error", message)
         win._cx_thread = None
         win._cx_worker = None
+
+    def _on_cancel():
+        worker = win._cx_worker
+        if worker:
+            worker._cancel_requested = True
+        win.complexity_cancel_btn.setEnabled(False)
+        win.complexity_cancel_btn.setText("Cancelling …")
 
     def generate():
         report_path = win.complexity_report_display.text().strip()
@@ -1156,6 +1182,7 @@ def create_complexity_page(win):
     win.complexity_settings_btn.clicked.connect(open_complexity_settings)
     win.compatibility_settings_btn.clicked.connect(open_compatibility_settings)
     win.complexity_generate_btn.clicked.connect(generate)
+    win.complexity_cancel_btn.clicked.connect(_on_cancel)
     win.complexity_generate_html_btn.clicked.connect(lambda: win._on_complexity_generate_html())
 
     scroll = win.make_scroll_page(page)

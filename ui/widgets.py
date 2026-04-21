@@ -588,19 +588,50 @@ class FolderField(QWidget):
 
     def pick_folder(self):
         if self.multi:
+            old_paths = list(self.selected_paths)
             folders = self._pick_multi_folders_dialog("Select Reference Folders")
-            # _pick_multi_folders_dialog returns existing list on cancel,
-            # so always apply the result (it's a no-op if nothing changed)
-            self.selected_paths = [normalize_path(f) for f in folders]
+            new_paths = [normalize_path(f) for f in folders]
+
+            # Detect which of the newly picked folders were already present
+            old_set  = set(old_paths)
+            new_set  = set(new_paths)
+            already  = [p for p in new_paths if p in old_set and p not in
+                        # only flag ones that were in OLD but came back via the picker
+                        # (the merge logic already skips them, but we want to warn)
+                        set()]
+            # Simpler: compare before/after
+            added    = [p for p in new_paths if p not in old_set]
+            skipped  = [p for p in new_paths if p in old_set and p not in old_paths]
+            # Actually: anything in new_paths that was already in old_paths is a dup
+            dups     = [p for p in new_paths if p in old_set]
+
+            if dups and not added:
+                # All picks were already in the list
+                from PySide6.QtWidgets import QMessageBox
+                names = "\n".join(os.path.basename(p) or p for p in dups)
+                QMessageBox.warning(
+                    None, "Already Added",
+                    f"The following folder(s) are already in the list — no changes made:\n\n{names}"
+                )
+                return  # don't update
+            elif dups:
+                from PySide6.QtWidgets import QMessageBox
+                names = "\n".join(os.path.basename(p) or p for p in dups)
+                QMessageBox.information(
+                    None, "Some Folders Already Added",
+                    f"The following folder(s) were already in the list and were skipped:\n\n{names}"
+                )
+
+            self.selected_paths = new_paths
             self._update_display()
-            self.selectionChanged.emit()  # point 6
+            self.selectionChanged.emit()
         else:
             # CHANGE: single select uses native OS dialog directly (no custom dialog)
             folder = self._pick_single_folder_native("Select Folder")
             if folder:
                 self.selected_paths = [normalize_path(folder)]
                 self._update_display()
-                self.selectionChanged.emit()  # point 6
+                self.selectionChanged.emit()
 
     def _update_display(self):
         if self.multi:
@@ -684,10 +715,32 @@ class MultiFileField(QWidget):
         if not files:
             return
         cleaned = [normalize_path(p) for p in files if p.lower().endswith(self.allowed_exts)]
-        self.selected_paths = cleaned
-        # Show summarised list in the single-line field (paths separated by " | ")
+        if not cleaned:
+            return
+
+        existing_set = set(self.selected_paths)
+        already_selected = [p for p in cleaned if p in existing_set]
+        new_files        = [p for p in cleaned if p not in existing_set]
+
+        if already_selected:
+            names = "\n".join(os.path.basename(p) for p in already_selected)
+            if not new_files:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.warning(
+                    self, "Already Selected",
+                    f"The following file(s) are already selected — no changes made:\n\n{names}"
+                )
+                return
+            else:
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.information(
+                    self, "Some Files Already Selected",
+                    f"The following file(s) were already selected and were skipped:\n\n{names}"
+                )
+
+        self.selected_paths = self.selected_paths + new_files
         self.display.setText(summarize_paths(self.selected_paths, "file").replace("\n", " | "))
-        self.selectionChanged.emit()  # point 6
+        self.selectionChanged.emit()
 
     def clear_selection(self):
         self.selected_paths = []

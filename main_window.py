@@ -267,6 +267,7 @@ class ReuseAnalysisWindow(QMainWindow):
             QLabel#fieldLabel {{ color: {t['text_secondary']}; font-weight: 800; font-size: {self.base_font_size}px; }}
             QLabel#panelTitle {{ color: {t['text_primary']}; font-weight: 900; font-size: {self.base_font_size+1}px; }}
             QLabel#panelSubtitle {{ color: {t['text_muted']}; font-size: {self.base_font_size-1}px; }}
+            QLabel#helpStepTitle {{ color: {t['text_primary']}; font-size: 15px; font-weight: 900; }}
             QLabel#cardTitle {{ color: {t['text_primary']}; font-weight: 900; font-size: {self.base_font_size+1}px; }}
             QLabel#cardSubtitle {{ color: {t['text_secondary']}; font-size: {self.base_font_size-1}px; }}
             QLabel#heroTitle {{ color: {t['text_primary']}; font-size: {self.base_font_size+18}px; font-weight: 900; }}
@@ -1557,6 +1558,40 @@ class ReuseAnalysisWindow(QMainWindow):
             QMessageBox.warning(self, "Missing Input", "Please select Target Base Folder.")
             return
 
+        target_root = target_folders[0]
+        norm_target = os.path.normpath(target_root).lower()
+
+        # ── Duplicate: same folder added twice in Reference Bases ────────────
+        seen_refs = set()
+        dup_refs  = []
+        for f in ref_folders:
+            key = os.path.normpath(f).lower()
+            if key in seen_refs:
+                dup_refs.append(f)
+            else:
+                seen_refs.add(key)
+        if dup_refs:
+            QMessageBox.warning(
+                self, "Duplicate Reference Folder",
+                "The following folder(s) appear more than once in Reference Bases — "
+                "please remove duplicates before submitting:\n\n" +
+                "\n".join(dup_refs)
+            )
+            return
+
+        # ── Target folder also appears in Reference Bases ────────────────────
+        clashing_refs = [f for f in ref_folders
+                         if os.path.normpath(f).lower() == norm_target]
+        if clashing_refs:
+            QMessageBox.warning(
+                self, "Conflicting Folders",
+                f"The Target Base Folder is also listed as a Reference Base Folder:\n\n"
+                f"{target_root}\n\n"
+                "A folder cannot be both the target and a reference. "
+                "Please choose a different folder for one of them."
+            )
+            return
+
         self.ref_submit_btn.setEnabled(False)
         self.ref_submit_btn.setText("Submitting...")
         from PySide6.QtWidgets import QApplication
@@ -1565,7 +1600,6 @@ class ReuseAnalysisWindow(QMainWindow):
         try:
             self._reset_view_and_diff()
 
-            target_root = target_folders[0]
             self.current_target_folders = ref_folders
 
             self._ref_function_filter = parse_function_list_files(function_list) if function_list else []
@@ -1785,6 +1819,9 @@ class ReuseAnalysisWindow(QMainWindow):
         self.report_phase_label.setText("Extracting — waiting to start")
         self.report_generate_btn.setEnabled(False)
         self.report_generate_btn.setText("Running …")
+        self.report_cancel_btn.setVisible(True)
+        self.report_cancel_btn.setEnabled(True)
+        self.report_cancel_btn.setText("Cancel")
         self.report_open_btn.setEnabled(False)
         self._report_output_file = ""
         if hasattr(self, "report_summary_chips"):
@@ -1923,6 +1960,9 @@ class ReuseAnalysisWindow(QMainWindow):
         self.report_phase_label.setText("Extracting — waiting to start")
         self.report_generate_html_btn.setEnabled(False)
         self.report_generate_html_btn.setText("Running …")
+        self.report_cancel_btn.setVisible(True)
+        self.report_cancel_btn.setEnabled(True)
+        self.report_cancel_btn.setText("Cancel")
         self.report_open_btn.setEnabled(False)
         self._report_output_file = ""
         if hasattr(self, "report_summary_chips"):
@@ -2031,6 +2071,7 @@ class ReuseAnalysisWindow(QMainWindow):
             self._set_report_progress(100, "HTML save cancelled")
             self.report_generate_html_btn.setEnabled(True)
             self.report_generate_html_btn.setText("Generate HTML Report")
+            self.report_cancel_btn.setVisible(False)
             return
         try:
             html_path = self._write_html_from_excel(out_excel, save_path=save_path)
@@ -2046,6 +2087,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.report_phase_label.setText("✅ Complete")
         self.report_generate_html_btn.setEnabled(True)
         self.report_generate_html_btn.setText("Generate HTML Report")
+        self.report_cancel_btn.setVisible(False)
         self.report_open_btn.setEnabled(True)
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Completed")
@@ -2354,10 +2396,21 @@ class ReuseAnalysisWindow(QMainWindow):
         return html_path
 
     def _on_report_error_html(self, msg: str):
+        if msg == '__CANCELLED__':
+            self._report_append_log("⛔ Generation cancelled by user.")
+            self.report_phase_label.setText("⛔ Cancelled")
+            self.report_generate_html_btn.setEnabled(True)
+            self.report_generate_html_btn.setText("Generate HTML Report")
+            self.report_cancel_btn.setVisible(False)
+            if hasattr(self, "report_summary_chips"):
+                self.report_summary_chips["phase"].set_value("Cancelled")
+                self.report_summary_chips["result"].set_value("—")
+            return
         self._report_append_log(f"ERROR: {msg}")
         self.report_phase_label.setText("⚠ Error")
         self.report_generate_html_btn.setEnabled(True)
         self.report_generate_html_btn.setText("Generate HTML Report")
+        self.report_cancel_btn.setVisible(False)
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Error")
             self.report_summary_chips["result"].set_value("Failed")
@@ -2376,6 +2429,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.report_phase_label.setText("✅ Complete")
         self.report_generate_btn.setEnabled(True)
         self.report_generate_btn.setText("Generate Report")
+        self.report_cancel_btn.setVisible(False)
         self.report_open_btn.setEnabled(True)
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Completed")
@@ -2385,15 +2439,38 @@ class ReuseAnalysisWindow(QMainWindow):
             f"FuncAtlas report generated successfully.\n\nFile:\n{out_file}")
 
     def _on_report_error(self, msg: str):
+        if msg == '__CANCELLED__':
+            self._report_append_log("⛔ Generation cancelled by user.")
+            self.report_phase_label.setText("⛔ Cancelled")
+            self.report_status_label.setText("Cancelled by user.")
+            self.report_generate_btn.setEnabled(True)
+            self.report_generate_btn.setText("Generate Report")
+            self.report_cancel_btn.setVisible(False)
+            if hasattr(self, "report_summary_chips"):
+                self.report_summary_chips["phase"].set_value("Cancelled")
+                self.report_summary_chips["result"].set_value("—")
+            return
         self._report_append_log(f"ERROR: {msg}")
         self.report_phase_label.setText("⚠ Error")
         self.report_status_label.setText("Error — see log below.")
         self.report_generate_btn.setEnabled(True)
         self.report_generate_btn.setText("Generate Report")
+        self.report_cancel_btn.setVisible(False)
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Error")
             self.report_summary_chips["result"].set_value("Failed")
         QMessageBox.critical(self, "Report Error", msg)
+
+    def _on_report_cancel(self):
+        """Cancel any in-progress report generation."""
+        self.report_cancel_btn.setEnabled(False)
+        self.report_cancel_btn.setText("Cancelling …")
+        # Signal extraction worker to stop
+        if hasattr(self, '_report_ext_worker') and self._report_ext_worker:
+            self._report_ext_worker._cancel_requested = True
+        # Signal compare worker to stop
+        if hasattr(self, '_report_cmp_worker') and self._report_cmp_worker:
+            self._report_cmp_worker._cancel_requested = True
 
     def _report_append_log(self, line: str):
         self.report_log_box.append(line)
@@ -2460,13 +2537,19 @@ class ReuseAnalysisWindow(QMainWindow):
 
     def _show_report_prerequisites(self):
         sections = [
-            {"title": "Reference data must be submitted", "body": "The report page depends on the target base and reference bases already loaded from the Input → Reference Bases page."},
-            {"title": "Output folder must be writable",   "body": "Pick a folder where Excel files and extracted text files can be created. Read-only folders will fail."},
-            {"title": "Close locked Excel files",         "body": "If the report file is already open in Excel, writing can fail or force a renamed output."},
-            {"title": "Large inputs take real time",      "body": "This build is threaded, so the UI stays responsive, but extraction and comparison time still depends on file count and file size."},
+            {"title": "Reference data must be submitted",
+             "body": "The Report and Diff pages both depend on the target base and reference bases already loaded from Input → Reference Bases. Without this, report generation and diff comparison will fail or produce empty output."},
+            {"title": "Reference data required for Diff comparison",
+             "body": "The Diff page compares extracted function sets between your target and reference bases. You must submit at least one target and one reference base from the Input page before running any diff."},
+            {"title": "Output folder must be writable",
+             "body": "Pick a folder where Excel files and extracted text files can be created. Read-only or network folders may fail silently."},
+            {"title": "Close locked Excel files",
+             "body": "If the report file is already open in Excel, writing can fail or force a renamed output. Always close the file before regenerating."},
+            {"title": "Large inputs take real time",
+             "body": "This build is threaded so the UI stays responsive, but extraction and comparison time still depends on file count and size. Monitor progress using the step indicators."},
         ]
-        HelpOverlayDialog(self, "Help — Prerequisites", sections,
-            footer_text="⚠ Do not run the report before loading target and reference sources. That is the main reason users get empty or failed output.",
+        HelpOverlayDialog(self, "Prerequisites", sections,
+            footer_text="⚠ Do not run Report or Diff before loading target and reference sources. That is the main reason users get empty or failed output.",
             tip_text="💡 Tip: Keep output on SSD/local disk and avoid opening the same report while generation is still running."
         ).exec()
 
