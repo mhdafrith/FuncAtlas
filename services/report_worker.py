@@ -100,20 +100,15 @@ class ReportCompareWorker(QObject):
         return read_source_file(path)
 
     def _match_percent(self, a, b):
-        def _clean(text):
-            out = []
-            for raw in text.splitlines():
-                s = raw.strip()
-                if not s or s.startswith('//') or s.startswith('/*') or s.startswith('*'):
-                    continue
-                out.append(s)
-            return out
-        lines_a = _clean(a); lines_b = _clean(b)
-        if not lines_a or not lines_b:
+        # All lines included (comments, everything) EXCEPT blank lines.
+        # Formula: matched_lines / total_lines_in_TARGET * 100
+        lines_a = [l for l in a.splitlines() if l.strip()]   # target — denominator
+        lines_b = [l for l in b.splitlines() if l.strip()]   # reference
+        if not lines_a:
             return 0
         cnt_a = Counter(lines_a); cnt_b = Counter(lines_b)
         matched = sum(min(cnt_a[ln], cnt_b[ln]) for ln in cnt_a)
-        total   = max(len(lines_a), len(lines_b))
+        total   = len(lines_a)     # denominator = target line count only
         return int(round((matched / total) * 100))
 
     def _classify_reuse_status(self, ref_data):

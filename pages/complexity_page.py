@@ -3,7 +3,8 @@
 import os
 import json
 
-from PySide6.QtCore import Qt, QThread
+import time
+from PySide6.QtCore import Qt, QThread, QTimer
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QFrame, QLabel,
     QPushButton, QLineEdit, QDialog, QScrollArea,
@@ -981,6 +982,11 @@ def create_complexity_page(win):
     win.complexity_status_lbl.setObjectName("panelSubtitle")
     win.complexity_status_lbl.setVisible(False)
 
+    win.complexity_timer_lbl = QLabel("")
+    win.complexity_timer_lbl.setObjectName("panelSubtitle")
+    win.complexity_timer_lbl.setStyleSheet("font-weight: 900; color: #1DA1F2;")
+    win.complexity_timer_lbl.setVisible(False)
+
     win.complexity_log = QTextEdit()
     win.complexity_log.setReadOnly(True)
     win.complexity_log.setFixedHeight(110)
@@ -989,6 +995,7 @@ def create_complexity_page(win):
 
     rc_layout.addWidget(win.complexity_progress_bar)
     rc_layout.addWidget(win.complexity_status_lbl)
+    rc_layout.addWidget(win.complexity_timer_lbl)
     rc_layout.addWidget(win.complexity_log)
 
     layout.addWidget(report_card)
@@ -1070,15 +1077,36 @@ def create_complexity_page(win):
             win._handled_scenarios = dlg.get_handled_scenarios()
             _save_handled_scenarios(win._handled_scenarios)
 
-    def _set_running_ui(running: bool):
+    def _set_running_ui(running: bool, keep_timer: bool = False):
         win.complexity_generate_btn.setEnabled(not running)
         win.complexity_generate_btn.setText("Running …" if running else "Generate Report")
         win.complexity_cancel_btn.setVisible(running)
         win.complexity_cancel_btn.setEnabled(True)
         win.complexity_cancel_btn.setText("Cancel")
         win.complexity_progress_bar.setVisible(running)
-        win.complexity_status_lbl.setVisible(running)
-        win.complexity_log.setVisible(running)
+        win.complexity_status_lbl.setVisible(True)
+        # Keep timer visible when stopping if keep_timer=True (shows final elapsed)
+        if running or keep_timer:
+            win.complexity_timer_lbl.setVisible(True)
+        else:
+            win.complexity_timer_lbl.setVisible(False)
+        win.complexity_log.setVisible(True)
+        if running:
+            win._cx_start_time = time.time()
+            if not hasattr(win, "_cx_timer"):
+                def _tick():
+                    elapsed = int(time.time() - getattr(win, "_cx_start_time", time.time()))
+                    m, s   = divmod(elapsed, 60)
+                    win.complexity_timer_lbl.setText(
+                        f"⏱ {m}m {s:02d}s elapsed" if m else f"⏱ {s}s elapsed"
+                    )
+                win._cx_timer = QTimer(win)
+                win._cx_timer.setInterval(1000)
+                win._cx_timer.timeout.connect(_tick)
+            win._cx_timer.start()
+        else:
+            if hasattr(win, "_cx_timer"):
+                win._cx_timer.stop()
 
     def _on_progress(pct: int, msg: str):
         win.complexity_progress_bar.setValue(max(0, min(100, int(pct))))
@@ -1088,26 +1116,34 @@ def create_complexity_page(win):
         win.complexity_log.append(msg)
 
     def _on_generate_done(path: str):
-        _set_running_ui(False)
+        elapsed = int(time.time() - getattr(win, "_cx_start_time", time.time()))
+        m, s    = divmod(elapsed, 60)
+        elapsed_str = f"{m}m {s:02d}s" if m else f"{s}s"
+        _set_running_ui(False, keep_timer=True)
         win.complexity_progress_bar.setValue(100)
-        win.complexity_status_lbl.setText("Done")
+        win.complexity_status_lbl.setText(f"Done — {elapsed_str}")
+        win.complexity_timer_lbl.setText(f"⏱ {elapsed_str}")
+        win.complexity_timer_lbl.setVisible(True)
         win.complexity_open_report_btn.setEnabled(True)
+        win.complexity_log.append(f"⏱ Total time: {elapsed_str}")
         QMessageBox.information(
             win, "Success",
-            f"Compatibility sheet appended successfully.\n\nUpdated report:\n{path}"
+            f"Compatibility sheet appended successfully.\n\nUpdated report:\n{path}\n\n⏱ Time: {elapsed_str}"
         )
         win._cx_thread = None
         win._cx_worker = None
 
     def _on_generate_error(message: str):
         if message == '__CANCELLED__':
-            _set_running_ui(False)
+            _set_running_ui(False, keep_timer=False)
             win.complexity_status_lbl.setText("Cancelled")
+            win.complexity_timer_lbl.setVisible(False)
             win.complexity_log.append("⛔ Generation cancelled by user.")
             win._cx_thread = None
             win._cx_worker = None
             return
-        _set_running_ui(False)
+        _set_running_ui(False, keep_timer=False)
+        win.complexity_timer_lbl.setVisible(False)
         QMessageBox.critical(win, "Error", message)
         win._cx_thread = None
         win._cx_worker = None

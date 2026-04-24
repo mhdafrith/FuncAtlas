@@ -1,7 +1,7 @@
 """pages/reference_page.py — Reference Bases input form."""
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFrame
 from ui.widgets import (
-    SectionTitle, IconTextButton,
+    SectionTitle, IconTextButton, ProgressButton,
     FolderField, XlsxMultiFileField
 )
 
@@ -58,7 +58,7 @@ def create_reference_page(win):
     btn_row = QHBoxLayout()
     btn_row.setSpacing(8)
 
-    win.ref_submit_btn = IconTextButton("Submit", win.icons_white.icon("submit", 15))
+    win.ref_submit_btn = ProgressButton("Submit", win.icons_white.icon("submit", 15))
     win.ref_submit_btn.setObjectName("smallPrimaryButton")
     win.ref_submit_btn.setFixedSize(124, 40)
 

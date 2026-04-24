@@ -295,24 +295,177 @@ class ComplexityAnalysisWorker(QObject):
         ws1.row_dimensions[1].height = 30
         ws1.freeze_panes = "A2"
 
-        # ── Sheet 2: Construct Summary ────────────────────────────────────────
+        # ── Sheet 2: Construct Summary + Level/Compatibility Summary ─────────
         ws2 = wb.create_sheet("Construct_Summary")
-        ws2.cell(row=1, column=1, value="Construct").font  = hdr_font
-        ws2.cell(row=1, column=1).fill   = hdr_fill
-        ws2.cell(row=1, column=1).alignment = Alignment(horizontal="center")
-        ws2.cell(row=1, column=2, value="Total Count").font = hdr_font
-        ws2.cell(row=1, column=2).fill   = hdr_fill
-        ws2.cell(row=1, column=2).alignment = Alignment(horizontal="center")
 
-        totals = {cn: sum(r["counts"].get(cn, 0) for r in records) for cn in construct_names}
-        for row_idx, cn in enumerate(construct_names, start=2):
-            ws2.cell(row=row_idx, column=1, value=cn).alignment  = Alignment(horizontal="left")
-            ws2.cell(row=row_idx, column=2, value=totals[cn]).alignment = Alignment(horizontal="center")
-            ws2.cell(row=row_idx, column=1).border = bdr()
-            ws2.cell(row=row_idx, column=2).border = bdr()
+        thin2  = Side(style="thin",   color="C5D8EC")
+        thick2 = Side(style="medium", color="1A3A5C")
+        def bdr2(left=None, right=None, top=None, bottom=None):
+            return Border(left=left or thin2, right=right or thin2,
+                          top=top or thin2,   bottom=bottom or thin2)
 
-        ws2.column_dimensions["A"].width = 28
-        ws2.column_dimensions["B"].width = 16
+        hdr_fill2 = PatternFill("solid", fgColor="1F4E78")
+        hdr_font2 = Font(color="FFFFFF", bold=True, name="Arial", size=10)
+        sub_fill  = PatternFill("solid", fgColor="2E75B6")
+        sub_font  = Font(color="FFFFFF", bold=True, name="Arial", size=11)
+
+        # ── Summary block: Complexity Level Distribution ──────────────────────
+        level_order  = ["Low", "Medium", "High", "Very High", "Complex"]
+        level_counts = {lv: 0 for lv in level_order}
+        for rec in records:
+            lv = rec.get("level", "Unknown")
+            if lv in level_counts:
+                level_counts[lv] += 1
+        total_fns = len(records)
+
+        level_colors2 = {
+            "Low":       "D6E4BC", "Medium":    "FFE699",
+            "High":      "F4B183", "Very High": "FF7070", "Complex": "CC0000",
+        }
+
+        # Title row
+        ws2.merge_cells("A1:C1")
+        t = ws2.cell(1, 1, "📊 Complexity Level Summary")
+        t.fill = sub_fill; t.font = sub_font
+        t.alignment = Alignment(horizontal="center", vertical="center")
+        ws2.row_dimensions[1].height = 26
+
+        # Header
+        for ci, hdr in enumerate(["Complexity Level", "Function Count", "% of Total"], 1):
+            c = ws2.cell(2, ci, hdr)
+            c.fill = hdr_fill2; c.font = hdr_font2
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = bdr2(top=thick2, bottom=thick2,
+                            left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 3 else thin2)
+
+        for ri, lv in enumerate(level_order, 3):
+            cnt = level_counts[lv]
+            pct = f"{cnt / total_fns * 100:.1f}%" if total_fns else "0.0%"
+            fg  = level_colors2.get(lv, "FFFFFF")
+            for ci, val in enumerate([lv, cnt, pct], 1):
+                c = ws2.cell(ri, ci, val)
+                c.fill = PatternFill("solid", fgColor=fg)
+                c.font = Font(bold=True,
+                              color="FFFFFF" if lv == "Complex" else "1A1A1A",
+                              name="Arial", size=10)
+                c.alignment = Alignment(horizontal="center" if ci > 1 else "left",
+                                        vertical="center")
+                c.border = bdr2(left=thick2 if ci == 1 else thin2,
+                                right=thick2 if ci == 3 else thin2,
+                                bottom=thick2 if ri == 3 + len(level_order) - 1 else thin2)
+
+        # Total row
+        tot_row = 3 + len(level_order)
+        for ci, val in enumerate(["Total", total_fns, "100%"], 1):
+            c = ws2.cell(tot_row, ci, val)
+            c.fill = PatternFill("solid", fgColor="1F4E78")
+            c.font = Font(color="FFFFFF", bold=True, name="Arial", size=10)
+            c.alignment = Alignment(horizontal="center" if ci > 1 else "left", vertical="center")
+            c.border = bdr2(left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 3 else thin2,
+                            top=thick2, bottom=thick2)
+
+        # ── Spacer ────────────────────────────────────────────────────────────
+        spacer_row = tot_row + 2
+
+        # ── Summary block: Compatibility Score Distribution ───────────────────
+        # Define ranges
+        compat_ranges = [
+            ("0% – 24%  (Poor)",      0,  24,  "FFC7CE", "9C0006"),
+            ("25% – 49%  (Low)",     25,  49,  "FFEB9C", "9C5700"),
+            ("50% – 74%  (Medium)",  50,  74,  "FFEB9C", "9C5700"),
+            ("75% – 89%  (Good)",    75,  89,  "C6EFCE", "276221"),
+            ("90% – 100%  (Excellent)", 90, 100, "A9D18E", "1A3A00"),
+        ]
+
+        # Recompute compat scores per function
+        construct_names2 = [c[0] for c in CONSTRUCTS]
+        compat_range_counts = {r[0]: 0 for r in compat_ranges}
+        for rec in records:
+            available = [cn for cn in construct_names2 if rec["counts"].get(cn, 0) > 0]
+            total_avail = sum(rec["counts"].get(cn, 0) for cn in available)
+            # For standalone report, all constructs are "handled" by default
+            compat_pct = 100.0 if total_avail == 0 else round(
+                sum(rec["counts"].get(cn, 0) for cn in available) / total_avail * 100, 2
+            )
+            for label, lo, hi, _, _ in compat_ranges:
+                if lo <= compat_pct <= hi:
+                    compat_range_counts[label] += 1
+                    break
+
+        ws2.merge_cells(f"A{spacer_row}:C{spacer_row}")
+        t2 = ws2.cell(spacer_row, 1, "🔗 Compatibility Score Distribution")
+        t2.fill = sub_fill; t2.font = sub_font
+        t2.alignment = Alignment(horizontal="center", vertical="center")
+        ws2.row_dimensions[spacer_row].height = 26
+
+        hdr_row2 = spacer_row + 1
+        for ci, hdr in enumerate(["Score Range", "Function Count", "% of Total"], 1):
+            c = ws2.cell(hdr_row2, ci, hdr)
+            c.fill = hdr_fill2; c.font = hdr_font2
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = bdr2(top=thick2, bottom=thick2,
+                            left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 3 else thin2)
+
+        for ri2, (label, lo, hi, bg, fc) in enumerate(compat_ranges, hdr_row2 + 1):
+            cnt = compat_range_counts[label]
+            pct = f"{cnt / total_fns * 100:.1f}%" if total_fns else "0.0%"
+            for ci, val in enumerate([label, cnt, pct], 1):
+                c = ws2.cell(ri2, ci, val)
+                c.fill = PatternFill("solid", fgColor=bg)
+                c.font = Font(color=fc, bold=True, name="Arial", size=10)
+                c.alignment = Alignment(horizontal="center" if ci > 1 else "left",
+                                        vertical="center")
+                c.border = bdr2(left=thick2 if ci == 1 else thin2,
+                                right=thick2 if ci == 3 else thin2,
+                                bottom=thick2 if ri2 == hdr_row2 + len(compat_ranges) else thin2)
+
+        tot_row2 = hdr_row2 + 1 + len(compat_ranges)
+        for ci, val in enumerate(["Total", total_fns, "100%"], 1):
+            c = ws2.cell(tot_row2, ci, val)
+            c.fill = PatternFill("solid", fgColor="1F4E78")
+            c.font = Font(color="FFFFFF", bold=True, name="Arial", size=10)
+            c.alignment = Alignment(horizontal="center" if ci > 1 else "left", vertical="center")
+            c.border = bdr2(left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 3 else thin2,
+                            top=thick2, bottom=thick2)
+
+        # ── Spacer before construct table ─────────────────────────────────────
+        construct_start = tot_row2 + 2
+
+        # Title for construct table
+        ws2.merge_cells(f"A{construct_start}:B{construct_start}")
+        t3 = ws2.cell(construct_start, 1, "🔩 Construct-by-Construct Totals")
+        t3.fill = sub_fill; t3.font = sub_font
+        t3.alignment = Alignment(horizontal="center", vertical="center")
+        ws2.row_dimensions[construct_start].height = 24
+
+        # Construct table headers
+        ch_row = construct_start + 1
+        for ci, hdr in enumerate(["Construct", "Total Count"], 1):
+            c = ws2.cell(ch_row, ci, hdr)
+            c.fill = hdr_fill2; c.font = hdr_font2
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = bdr2(top=thick2, bottom=thick2,
+                            left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 2 else thin2)
+
+        totals = {cn: sum(r["counts"].get(cn, 0) for r in records) for cn in construct_names2}
+        for ri3, cn in enumerate(construct_names2, ch_row + 1):
+            c1 = ws2.cell(ri3, 1, cn)
+            c1.alignment = Alignment(horizontal="left", vertical="center")
+            c1.border = bdr2(left=thick2)
+            c1.font = Font(name="Arial", size=10)
+            c2 = ws2.cell(ri3, 2, totals[cn])
+            c2.alignment = Alignment(horizontal="center", vertical="center")
+            c2.border = bdr2(right=thick2)
+            c2.font = Font(name="Arial", size=10)
+
+        ws2.column_dimensions["A"].width = 34
+        ws2.column_dimensions["B"].width = 18
+        ws2.column_dimensions["C"].width = 16
 
         out_path = os.path.join(self.output_root, "FuncAtlas_Complexity_Report.xlsx")
         wb.save(out_path)
@@ -644,6 +797,163 @@ class ComplexityAppendWorker(QObject):
         ws4.column_dimensions["F"].width = 50
         ws4.column_dimensions["G"].width = 20
         ws4.freeze_panes = "A2"
+
+        # ── Rebuild / update Sheet 2 summary ────────────────────────────────
+        SUM_SHEET = "Construct_Summary"
+        if SUM_SHEET in wb.sheetnames:
+            del wb[SUM_SHEET]
+        ws2 = wb.create_sheet(SUM_SHEET, 1)   # insert as 2nd sheet
+
+        thin2  = Side(style="thin",   color="C5D8EC")
+        thick2 = Side(style="medium", color="1A3A5C")
+        def bdr2(left=None, right=None, top=None, bottom=None):
+            return Border(left=left or thin2, right=right or thin2,
+                          top=top or thin2,   bottom=bottom or thin2)
+
+        hdr_fill2 = PatternFill("solid", fgColor="1F4E78")
+        hdr_font2 = Font(color="FFFFFF", bold=True, name="Arial", size=10)
+        sub_fill2 = PatternFill("solid", fgColor="2E75B6")
+        sub_font2 = Font(color="FFFFFF", bold=True, name="Arial", size=11)
+
+        level_order2 = ["Low", "Medium", "High", "Very High", "Complex"]
+        level_counts2 = {lv: 0 for lv in level_order2}
+        for rec in records:
+            lv = rec.get("level", "Unknown")
+            if lv in level_counts2:
+                level_counts2[lv] += 1
+        total_fns2 = len(records)
+
+        level_colors2 = {
+            "Low": "D6E4BC", "Medium": "FFE699",
+            "High": "F4B183", "Very High": "FF7070", "Complex": "CC0000",
+        }
+
+        # Complexity summary title
+        ws2.merge_cells("A1:C1")
+        t = ws2.cell(1, 1, "📊 Complexity Level Summary")
+        t.fill = sub_fill2; t.font = sub_font2
+        t.alignment = Alignment(horizontal="center", vertical="center")
+        ws2.row_dimensions[1].height = 26
+
+        for ci, h in enumerate(["Complexity Level", "Function Count", "% of Total"], 1):
+            c = ws2.cell(2, ci, h)
+            c.fill = hdr_fill2; c.font = hdr_font2
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = bdr2(top=thick2, bottom=thick2,
+                            left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 3 else thin2)
+
+        for ri, lv in enumerate(level_order2, 3):
+            cnt = level_counts2[lv]
+            pct = f"{cnt / total_fns2 * 100:.1f}%" if total_fns2 else "0.0%"
+            fg  = level_colors2.get(lv, "FFFFFF")
+            for ci, val in enumerate([lv, cnt, pct], 1):
+                c = ws2.cell(ri, ci, val)
+                c.fill = PatternFill("solid", fgColor=fg)
+                c.font = Font(bold=True, color="FFFFFF" if lv == "Complex" else "1A1A1A",
+                              name="Arial", size=10)
+                c.alignment = Alignment(horizontal="center" if ci > 1 else "left", vertical="center")
+                c.border = bdr2(left=thick2 if ci == 1 else thin2,
+                                right=thick2 if ci == 3 else thin2)
+
+        tot_row_s2 = 3 + len(level_order2)
+        for ci, val in enumerate(["Total", total_fns2, "100%"], 1):
+            c = ws2.cell(tot_row_s2, ci, val)
+            c.fill = PatternFill("solid", fgColor="1F4E78")
+            c.font = Font(color="FFFFFF", bold=True, name="Arial", size=10)
+            c.alignment = Alignment(horizontal="center" if ci > 1 else "left", vertical="center")
+            c.border = bdr2(left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 3 else thin2, top=thick2, bottom=thick2)
+
+        # Compatibility summary
+        compat_ranges2 = [
+            ("0% – 24%  (Poor)",         0,  24,  "FFC7CE", "9C0006"),
+            ("25% – 49%  (Low)",        25,  49,  "FFEB9C", "9C5700"),
+            ("50% – 74%  (Medium)",     50,  74,  "FFEB9C", "9C5700"),
+            ("75% – 89%  (Good)",       75,  89,  "C6EFCE", "276221"),
+            ("90% – 100%  (Excellent)", 90, 100,  "A9D18E", "1A3A00"),
+        ]
+        compat_range_counts2 = {r[0]: 0 for r in compat_ranges2}
+
+        # Recompute per-function compat from records using handled_scenarios
+        for rec in records:
+            available2 = [cn for cn in construct_names if rec["counts"].get(cn, 0) > 0]
+            handled_in_fn2   = [cn for cn in available2 if cn in handled]
+            total_avail2     = sum(rec["counts"].get(cn, 0) for cn in available2)
+            total_handled2   = sum(rec["counts"].get(cn, 0) for cn in handled_in_fn2)
+            cp = round(total_handled2 / total_avail2 * 100, 2) if total_avail2 > 0 else 0.0
+            for label2, lo2, hi2, _, _ in compat_ranges2:
+                if lo2 <= cp <= hi2:
+                    compat_range_counts2[label2] += 1
+                    break
+
+        spacer2 = tot_row_s2 + 2
+        ws2.merge_cells(f"A{spacer2}:C{spacer2}")
+        t2 = ws2.cell(spacer2, 1, "🔗 Compatibility Score Distribution")
+        t2.fill = sub_fill2; t2.font = sub_font2
+        t2.alignment = Alignment(horizontal="center", vertical="center")
+        ws2.row_dimensions[spacer2].height = 26
+
+        hdr_r2 = spacer2 + 1
+        for ci, h in enumerate(["Score Range", "Function Count", "% of Total"], 1):
+            c = ws2.cell(hdr_r2, ci, h)
+            c.fill = hdr_fill2; c.font = hdr_font2
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = bdr2(top=thick2, bottom=thick2,
+                            left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 3 else thin2)
+
+        for ri2, (label2, lo2, hi2, bg2, fc2) in enumerate(compat_ranges2, hdr_r2 + 1):
+            cnt2 = compat_range_counts2[label2]
+            pct2 = f"{cnt2 / total_fns2 * 100:.1f}%" if total_fns2 else "0.0%"
+            for ci, val in enumerate([label2, cnt2, pct2], 1):
+                c = ws2.cell(ri2, ci, val)
+                c.fill = PatternFill("solid", fgColor=bg2)
+                c.font = Font(color=fc2, bold=True, name="Arial", size=10)
+                c.alignment = Alignment(horizontal="center" if ci > 1 else "left", vertical="center")
+                c.border = bdr2(left=thick2 if ci == 1 else thin2,
+                                right=thick2 if ci == 3 else thin2)
+
+        tot_row_compat2 = hdr_r2 + 1 + len(compat_ranges2)
+        for ci, val in enumerate(["Total", total_fns2, "100%"], 1):
+            c = ws2.cell(tot_row_compat2, ci, val)
+            c.fill = PatternFill("solid", fgColor="1F4E78")
+            c.font = Font(color="FFFFFF", bold=True, name="Arial", size=10)
+            c.alignment = Alignment(horizontal="center" if ci > 1 else "left", vertical="center")
+            c.border = bdr2(left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 3 else thin2, top=thick2, bottom=thick2)
+
+        # Construct totals
+        construct_start2 = tot_row_compat2 + 2
+        ws2.merge_cells(f"A{construct_start2}:B{construct_start2}")
+        t3 = ws2.cell(construct_start2, 1, "🔩 Construct-by-Construct Totals")
+        t3.fill = sub_fill2; t3.font = sub_font2
+        t3.alignment = Alignment(horizontal="center", vertical="center")
+        ws2.row_dimensions[construct_start2].height = 24
+
+        ch_r2 = construct_start2 + 1
+        for ci, h in enumerate(["Construct", "Total Count"], 1):
+            c = ws2.cell(ch_r2, ci, h)
+            c.fill = hdr_fill2; c.font = hdr_font2
+            c.alignment = Alignment(horizontal="center", vertical="center")
+            c.border = bdr2(top=thick2, bottom=thick2,
+                            left=thick2 if ci == 1 else thin2,
+                            right=thick2 if ci == 2 else thin2)
+
+        totals2 = {cn: sum(r["counts"].get(cn, 0) for r in records) for cn in construct_names}
+        for ri3, cn in enumerate(construct_names, ch_r2 + 1):
+            c1 = ws2.cell(ri3, 1, cn)
+            c1.alignment = Alignment(horizontal="left", vertical="center")
+            c1.border = bdr2(left=thick2)
+            c1.font = Font(name="Arial", size=10)
+            c2 = ws2.cell(ri3, 2, totals2[cn])
+            c2.alignment = Alignment(horizontal="center", vertical="center")
+            c2.border = bdr2(right=thick2)
+            c2.font = Font(name="Arial", size=10)
+
+        ws2.column_dimensions["A"].width = 34
+        ws2.column_dimensions["B"].width = 18
+        ws2.column_dimensions["C"].width = 16
 
         wb.save(self.report_path)
         wb.close()

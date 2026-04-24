@@ -170,7 +170,7 @@ def create_diff_page(win):
 
     # ── Fullscreen button ─────────────────────────────────────────────────────
     win._diff_fullscreen = False
-    win._diff_fs_btn = QPushButton("Fullscreen")
+    win._diff_fs_btn = QPushButton("⛶ Fullscreen")
     win._diff_fs_btn.setObjectName("diffFsBtn")
     win._diff_fs_btn.setFixedSize(148, 34)
     win._diff_fs_btn.setCursor(Qt.PointingHandCursor)

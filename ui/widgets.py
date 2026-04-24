@@ -13,7 +13,7 @@ KEY CHANGES vs original:
 
 import os
 from PySide6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve, Signal
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QWidget, QFrame, QLabel, QPushButton, QProgressBar,
     QVBoxLayout, QHBoxLayout, QTextEdit, QLineEdit, QListWidget,
@@ -111,7 +111,28 @@ class NavButton(QPushButton):
 
     def _on_toggled(self, checked: bool):
         """Keep text label color in sync with checked (active) state."""
-        color = "#FFFFFF" if checked else ""   # empty = inherit from stylesheet
+        if checked:
+            # Walk up to find the main window and read the actual accent color
+            import re as _re
+            accent_hex = None
+            parent = self.parent()
+            while parent is not None:
+                if hasattr(parent, "accent_color"):
+                    accent_hex = parent.accent_color.name()
+                    break
+                parent = parent.parent()
+            # Fallback: parse from current global stylesheet
+            if accent_hex is None:
+                from PySide6.QtWidgets import QApplication
+                ss = QApplication.instance().styleSheet() if QApplication.instance() else ""
+                hits = _re.findall(r'#[0-9A-Fa-f]{6}', ss)
+                accent_hex = hits[0] if hits else "#3BA8FF"
+            from PySide6.QtGui import QColor as _QC
+            bg = _QC(accent_hex)
+            lum = (0.299 * bg.red() + 0.587 * bg.green() + 0.114 * bg.blue()) / 255
+            color = "#1a1a1a" if lum > 0.55 else "#FFFFFF"
+        else:
+            color = ""   # empty = inherit from stylesheet
         self._text_label.setStyleSheet(
             f"background: transparent; font-weight: 800; font-size: 13px; color: {color};"
         )
@@ -168,6 +189,90 @@ class IconTextButton(QPushButton):
         self.setMinimumHeight(40)
         self.setMinimumWidth(150)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+
+
+# ── ProgressButton ───────────────────────────────────────────────────────────
+class ProgressButton(QPushButton):
+    """A button that shows a left-to-right fill animation while busy."""
+    def __init__(self, text: str, icon: QIcon):
+        super().__init__(text)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setIcon(icon)
+        self.setIconSize(QSize(16, 16))
+        self.setMinimumHeight(40)
+        self.setMinimumWidth(150)
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self._progress   = 0          # 0-100
+        self._fill_color = QColor("#1565C0")   # fill color (blue)
+        self._text_color = QColor("#ffffff")
+        self._timer      = QTimer(self)
+        self._timer.setInterval(30)
+        self._timer.timeout.connect(self._tick)
+        self._direction  = 1          # 1 = filling, -1 = draining
+
+    # ── public API ───────────────────────────────────────────────────────────
+    def start_progress(self, label: str = ""):
+        """Start the fill animation and update label."""
+        if label:
+            self.setText(label)
+        self._progress  = 0
+        self._direction = 1
+        self.setEnabled(False)
+        self._timer.start()
+        self.update()
+
+    def stop_progress(self, label: str = ""):
+        """Stop the animation, restore label."""
+        self._timer.stop()
+        self._progress = 0
+        if label:
+            self.setText(label)
+        self.setEnabled(True)
+        self.update()
+
+    # ── internal ─────────────────────────────────────────────────────────────
+    def _tick(self):
+        self._progress += self._direction * 2
+        if self._progress >= 95:
+            # Hold near-full until stop_progress is called
+            self._progress = 95
+        self.update()
+
+    def paintEvent(self, event):
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        r = self.rect()
+        radius = 8
+
+        # Read accent color dynamically from the button palette (set by stylesheet)
+        # Falls back to blue if no color is set
+        btn_bg = self.palette().button().color()
+        if not btn_bg.isValid() or btn_bg == QColor(0, 0, 0) or btn_bg.lightness() < 5:
+            btn_bg = QColor("#2196F3")
+
+        # Background: use accent when enabled, slightly darker when disabled
+        bg = btn_bg if self.isEnabled() else btn_bg.darker(120)
+        path = QPainterPath()
+        path.addRoundedRect(r.x(), r.y(), r.width(), r.height(), radius, radius)
+        painter.fillPath(path, bg)
+
+        # Fill overlay: slightly lighter shade of the same accent
+        if self._progress > 0:
+            fill_color = btn_bg.lighter(130)
+            fill_w = int(r.width() * self._progress / 100)
+            fill_path = QPainterPath()
+            fill_path.addRoundedRect(r.x(), r.y(), fill_w, r.height(), radius, radius)
+            painter.fillPath(fill_path, fill_color)
+
+        # Text — auto-contrast: dark text on light accents, white on dark accents
+        r2, g2, b2 = btn_bg.red(), btn_bg.green(), btn_bg.blue()
+        lum = (0.299 * r2 + 0.587 * g2 + 0.114 * b2) / 255
+        text_color = QColor("#1a1a1a") if lum > 0.55 else QColor("#ffffff")
+        painter.setPen(text_color)
+        font = self.font()
+        painter.setFont(font)
+        painter.drawText(r, Qt.AlignCenter, self.text())
+        painter.end()
 
 
 # ── SectionTitle ─────────────────────────────────────────────────────────────
@@ -280,11 +385,15 @@ class PremiumCard(QFrame):
         self.update_accent(accent)
 
     def update_accent(self, accent: str):
+        from PySide6.QtGui import QColor
         self.icon_box.setStyleSheet(f"background:{accent}; border-radius:16px;")
         if self.action_btn:
+            c = QColor(accent)
+            lum = (0.299 * c.red() + 0.587 * c.green() + 0.114 * c.blue()) / 255
+            btn_txt = "#1a1a1a" if lum > 0.55 else "white"
             self.action_btn.setStyleSheet(f"""
                 QPushButton {{
-                    background: {accent}; color: white; border: 1px solid {accent};
+                    background: {accent}; color: {btn_txt}; border: 1px solid {accent};
                     border-radius: 12px; min-height: 34px; min-width: 104px;
                     padding: 6px 16px; font-weight: 900; text-align: center;
                 }}
@@ -398,31 +507,19 @@ class FolderField(QWidget):
         return folder
 
     # ── multi-select: native OS folder picker accumulator ────────────────────
-    def _pick_multi_folders_dialog(self, title: str = "Select Reference Folders") -> list:
+    def _pick_multi_folders_dialog(self, title: str = "Select Reference Folders"):
         """
-        Opens the real native Windows Explorer folder picker (IFileOpenDialog
-        via COM/ctypes) with FOS_ALLOWMULTISELECT so the user can Ctrl+click
-        multiple folders in one shot.  Falls back to the Qt dialog on non-Windows
-        or if the COM call fails.
-        Previously-selected folders are kept and new picks are merged in.
+        Opens the native folder picker.
+        Returns a list of the RAW paths the user just selected,
+        or None if the user cancelled.  Merging with existing
+        selected_paths is handled entirely by pick_folder().
         """
         chosen = self._windows_shell_multi_folder(title)
         if chosen is None:
             # Fallback: Qt dialog (non-Windows or COM failure)
             chosen = self._qt_multi_folder_fallback(title)
-        if chosen is None:
-            # Cancelled
-            return list(self.selected_paths)
-
-        # Merge new picks into existing list, preserving order, no duplicates
-        existing_set = set(self.selected_paths)
-        merged = list(self.selected_paths)
-        for p in chosen:
-            p = normalize_path(p)
-            if p not in existing_set:
-                merged.append(p)
-                existing_set.add(p)
-        return merged
+        # None means cancelled — propagate None so pick_folder can bail out
+        return chosen
 
     def _windows_shell_multi_folder(self, title: str):
         """
@@ -589,24 +686,25 @@ class FolderField(QWidget):
     def pick_folder(self):
         if self.multi:
             old_paths = list(self.selected_paths)
-            folders = self._pick_multi_folders_dialog("Select Reference Folders")
-            new_paths = [normalize_path(f) for f in folders]
+            old_set   = set(old_paths)
 
-            # Detect which of the newly picked folders were already present
-            old_set  = set(old_paths)
-            new_set  = set(new_paths)
-            already  = [p for p in new_paths if p in old_set and p not in
-                        # only flag ones that were in OLD but came back via the picker
-                        # (the merge logic already skips them, but we want to warn)
-                        set()]
-            # Simpler: compare before/after
-            added    = [p for p in new_paths if p not in old_set]
-            skipped  = [p for p in new_paths if p in old_set and p not in old_paths]
-            # Actually: anything in new_paths that was already in old_paths is a dup
-            dups     = [p for p in new_paths if p in old_set]
+            # Returns only what the user just picked, or None if cancelled
+            raw_picks = self._pick_multi_folders_dialog("Select Reference Folders")
+
+            # User cancelled — do nothing
+            if raw_picks is None:
+                return
+
+            # Normalize all picked paths
+            picked = [normalize_path(p) for p in raw_picks]
+
+            # Split into truly-new vs already-in-list (case-insensitive on Windows)
+            old_set_lower = {p.lower() for p in old_paths}
+            added = [p for p in picked if p.lower() not in old_set_lower]
+            dups  = [p for p in picked if p.lower() in old_set_lower]
 
             if dups and not added:
-                # All picks were already in the list
+                # Every pick was already in the list — nothing to add
                 from PySide6.QtWidgets import QMessageBox
                 names = "\n".join(os.path.basename(p) or p for p in dups)
                 QMessageBox.warning(
@@ -615,6 +713,7 @@ class FolderField(QWidget):
                 )
                 return  # don't update
             elif dups:
+                # Some new, some duplicate — add new ones, warn about skipped
                 from PySide6.QtWidgets import QMessageBox
                 names = "\n".join(os.path.basename(p) or p for p in dups)
                 QMessageBox.information(
@@ -622,7 +721,8 @@ class FolderField(QWidget):
                     f"The following folder(s) were already in the list and were skipped:\n\n{names}"
                 )
 
-            self.selected_paths = new_paths
+            # Merge: keep old order, append only new picks
+            self.selected_paths = old_paths + added
             self._update_display()
             self.selectionChanged.emit()
         else:

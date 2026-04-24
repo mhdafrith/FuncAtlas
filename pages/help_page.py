@@ -45,6 +45,9 @@ def create_help_page(win):
     layout.addWidget(top_card)
 
     # ── step boxes ────────────────────────────────────────────────────────────
+    # Track all badges so apply_styles() can repaint them on accent change
+    win._help_badges = []
+
     grid_wrap = QWidget()
     grid = QGridLayout(grid_wrap)
     grid.setContentsMargins(0, 0, 0, 0)
@@ -64,6 +67,8 @@ def create_help_page(win):
             f"background: {win.accent_color.name()}; color: white; "
             f"border-radius: 10px; font-size: 16px; font-weight: 900;"
         )
+        # Register badge for live accent color updates
+        win._help_badges.append(badge)
         txt_wrap = QVBoxLayout()
         txt_wrap.setContentsMargins(0, 0, 0, 0)
         txt_wrap.setSpacing(4)

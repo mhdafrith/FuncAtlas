@@ -8,6 +8,7 @@ This file only wires navigation, theme, and business logic slots.
 """
 
 import os
+import time
 import re
 import sys
 from collections import OrderedDict
@@ -197,6 +198,11 @@ class ReuseAnalysisWindow(QMainWindow):
         accent      = self.accent_color.name()
         accent_hover = QColor(accent).lighter(114).name()
         accent_dark  = QColor(accent).darker(108).name()
+
+        # Auto-contrast: use dark text on light accents, white on dark accents
+        r, g, b = self.accent_color.red(), self.accent_color.green(), self.accent_color.blue()
+        luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        btn_text = "#1a1a1a" if luminance > 0.55 else "white"
         if self.current_theme == "dark":
             glossy_primary = (f"qlineargradient(x1:0,y1:0,x2:0,y2:1,"
                               f" stop:0 {QColor(accent).lighter(114).name()},"
@@ -267,14 +273,14 @@ class ReuseAnalysisWindow(QMainWindow):
             QLabel#fieldLabel {{ color: {t['text_secondary']}; font-weight: 800; font-size: {self.base_font_size}px; }}
             QLabel#panelTitle {{ color: {t['text_primary']}; font-weight: 900; font-size: {self.base_font_size+1}px; }}
             QLabel#panelSubtitle {{ color: {t['text_muted']}; font-size: {self.base_font_size-1}px; }}
-            QLabel#helpStepTitle {{ color: {t['text_primary']}; font-size: 15px; font-weight: 900; }}
+            QLabel#helpStepTitle {{ color: {accent}; font-size: 15px; font-weight: 900; }}
             QLabel#cardTitle {{ color: {t['text_primary']}; font-weight: 900; font-size: {self.base_font_size+1}px; }}
             QLabel#cardSubtitle {{ color: {t['text_secondary']}; font-size: {self.base_font_size-1}px; }}
             QLabel#heroTitle {{ color: {t['text_primary']}; font-size: {self.base_font_size+18}px; font-weight: 900; }}
-            QLabel#heroKicker {{ color: {accent}; font-size: {self.base_font_size-1}px; font-weight: 900; letter-spacing: 2px; }}
+            QLabel#heroKicker {{ color: {accent if luminance <= 0.55 else QColor(accent).darker(160).name()}; font-size: {self.base_font_size-1}px; font-weight: 900; letter-spacing: 2px; }}
             QLabel#heroSubtitle {{ color: {t['text_secondary']}; font-size: {self.base_font_size+1}px; }}
             QLabel#heroBadge {{
-                background: {accent}; color: white;
+                background: {accent}; color: {btn_text};
                 border-radius: 14px; font-size: {self.base_font_size+1}px; font-weight: 900;
             }}
             QLabel#statChipValue {{ color: {accent}; font-size: {self.base_font_size+3}px; font-weight: 900; }}
@@ -289,9 +295,9 @@ class ReuseAnalysisWindow(QMainWindow):
             }}
             QPushButton:hover {{ border: 1px solid {accent}; }}
             QPushButton:pressed {{ padding-top: 7px; padding-bottom: 3px; }}
-            QPushButton:checked {{ background: {glossy_primary}; color: white; border: 1px solid {accent_dark}; }}
+            QPushButton:checked {{ background: {glossy_primary}; color: {btn_text}; border: 1px solid {accent_dark}; }}
             QPushButton#smallPrimaryButton {{
-                background: {glossy_primary}; color: white; border: 1px solid {accent_dark};
+                background: {glossy_primary}; color: {btn_text}; border: 1px solid {accent_dark};
                 border-radius: 14px; min-height: 32px; min-width: 70px;
                 padding: 6px 14px; font-size: {self.base_font_size}px; font-weight: 900; text-align: center;
             }}
@@ -303,7 +309,7 @@ class ReuseAnalysisWindow(QMainWindow):
             }}
             QPushButton#ghostButton:hover {{ border: 1px solid {accent}; }}
             QPushButton#pickerButton {{
-                background: {glossy_primary}; color: white; border: 1px solid {accent_dark};
+                background: {glossy_primary}; color: {btn_text}; border: 1px solid {accent_dark};
                 border-radius: 13px; min-height: 34px; min-width: 108px;
                 padding: 6px 14px; font-weight: 900; font-size: {self.base_font_size}px; text-align: center;
             }}
@@ -313,14 +319,14 @@ class ReuseAnalysisWindow(QMainWindow):
                 border: 1px solid {t['border']};
             }}
             QPushButton#clearButton {{
-                background: {glossy_primary}; color: white; border: 1px solid {accent_dark};
+                background: {glossy_primary}; color: {btn_text}; border: 1px solid {accent_dark};
                 border-radius: 13px; min-height: 34px; min-width: 80px;
                 padding: 6px 14px; font-weight: 900; font-size: {self.base_font_size}px; text-align: center;
             }}
             QPushButton#clearButton:hover {{ border: 1px solid {accent_hover}; background: {glossy_primary}; }}
             QPushButton#clearButton:pressed {{ background: {accent_dark}; }}
             QPushButton#clearButtonRect {{
-                background: {glossy_primary}; color: white; border: 1px solid {accent_dark};
+                background: {glossy_primary}; color: {btn_text}; border: 1px solid {accent_dark};
                 border-radius: 13px; min-height: 34px; min-width: 80px;
                 padding: 6px 14px; font-weight: 900; font-size: {self.base_font_size}px; text-align: center;
             }}
@@ -335,7 +341,7 @@ class ReuseAnalysisWindow(QMainWindow):
                 font-size: {self.base_font_size}px;
             }}
             QPushButton#toggleLeft:checked {{
-                background: {t['accent']}; color: white;border: 2px solid {accent_hover};
+                background: {accent}; color: {btn_text};border: 2px solid {accent_hover};
             }}
             QPushButton#toggleRight {{
                 background: {t['bg_soft']}; color: {t['text_muted']};
@@ -346,7 +352,7 @@ class ReuseAnalysisWindow(QMainWindow):
                 font-size: {self.base_font_size}px;
             }}
             QPushButton#toggleRight:checked {{
-                background: {t['accent']}; color: white; border: 2px solid {accent_hover};
+                background: {accent}; color: {btn_text}; border: 2px solid {accent_hover};
             }}
             QWidget#funcColField QLineEdit:disabled {{
                 background: {t['bg_soft']}; color: {t['text_muted']};
@@ -422,7 +428,7 @@ class ReuseAnalysisWindow(QMainWindow):
                 f" border-radius: 12px; padding: 6px 12px; font-weight: 900;"
             )
         if hasattr(self, "theme_btn"):
-            self.theme_btn.setText("☀ Light" if self.current_theme == "dark" else "🌙 Dark")
+            self.theme_btn.setText("☀ Light" if self.current_theme == "dark" else "Dark")
         if hasattr(self, "settings_theme_combo"):
             self.settings_theme_combo.blockSignals(True)
             self.settings_theme_combo.setCurrentIndex(0 if self.current_theme == "dark" else 1)
@@ -439,14 +445,38 @@ class ReuseAnalysisWindow(QMainWindow):
             )
         for card in self.accent_cards:
             try:
+                card.update_accent(accent)
                 card._shadow = add_shadow(card, blur=28, y_offset=9, alpha=80)
             except Exception:
                 pass
 
+        # Refresh active nav button label color for new accent
+        if hasattr(self, "nav_buttons"):
+            for btn in self.nav_buttons.values():
+                if btn.isChecked():
+                    btn._on_toggled(True)
+
+    def _update_progress_btn_colors(self):
+        """Push current accent color into every ProgressButton palette so
+        their custom paintEvent picks up the right color."""
+        from PySide6.QtGui import QPalette
+        from ui.widgets import ProgressButton
+        accent = self.accent_color
+        # Walk all child widgets and update any ProgressButton
+        for btn in self.findChildren(ProgressButton):
+            pal = btn.palette()
+            pal.setColor(QPalette.Button, accent)
+            btn.setPalette(pal)
+            btn.update()
+
     def rebuild_icons(self):
         icon_color = QColor("#FFFFFF") if self.current_theme == "dark" else QColor("#102134")
+        # For white icons on nav buttons, use contrast vs accent color
+        r, g, b = self.accent_color.red(), self.accent_color.green(), self.accent_color.blue()
+        lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        nav_icon_color = QColor("#1a1a1a") if lum > 0.55 else QColor("#FFFFFF")
         self.icons = VectorIconFactory(icon_color)
-        self.icons_white = self.icons
+        self.icons_white = VectorIconFactory(nav_icon_color)
         icon_map = {
             "home": "home", "input": "input", "view": "view",
             "diff": "diff", "report": "report", "complexity": "settings",
@@ -499,6 +529,9 @@ class ReuseAnalysisWindow(QMainWindow):
         self.theme = ThemeManager.THEMES[mode]
         self.apply_styles()
         self.rebuild_icons()
+        self._update_progress_btn_colors()
+        self._update_color_btn_swatch()
+        self._update_help_badges()
 
     def toggle_theme(self):
         self.set_theme_mode("light" if self.current_theme == "dark" else "dark")
@@ -507,11 +540,98 @@ class ReuseAnalysisWindow(QMainWindow):
         self.set_theme_mode("dark" if idx == 0 else "light")
 
     def pick_accent_color(self):
-        color = QColorDialog.getColor(self.accent_color, self, "Choose Accent Color")
-        if color.isValid():
-            self.accent_color = color
+        """Open a QColorDialog with a proper standalone Reset Color button."""
+        from PySide6.QtWidgets import (
+            QDialogButtonBox, QDialog, QVBoxLayout, QHBoxLayout as _QHBox
+        )
+
+        dlg = QColorDialog(self.accent_color, self)
+        dlg.setWindowTitle("Choose Accent Color")
+        dlg.setOption(QColorDialog.DontUseNativeDialog, True)
+
+        # ── Find the dialog's top-level layout and button box ─────────────────
+        btn_box = dlg.findChild(QDialogButtonBox)
+
+        # Build a standalone Reset button with fixed dimensions
+        reset_btn = QPushButton("↺  Reset Color")
+        reset_btn.setFixedHeight(36)
+        reset_btn.setMinimumWidth(130)
+        reset_btn.setStyleSheet(
+            "QPushButton {"
+            "  border: 1px solid #888; border-radius: 6px;"
+            "  padding: 4px 14px; font-weight: 700; font-size: 13px;"
+            "  background: #2a2a2a; color: #ffffff;"
+            "}"
+            "QPushButton:hover { background: #3a3a3a; border-color: #aaa; }"
+            "QPushButton:pressed { background: #1a1a1a; }"
+        )
+        reset_btn.setToolTip("Reset accent to default blue (#3BA8FF) and apply immediately")
+
+        def _do_reset():
+            self.accent_color = QColor(self.default_accent)
             self.apply_styles()
             self.rebuild_icons()
+            self._update_progress_btn_colors()
+            self._update_color_btn_swatch()
+            self._update_help_badges()
+            dlg.reject()
+
+        reset_btn.clicked.connect(_do_reset)
+
+        # ── Inject reset button into a new row ABOVE the OK/Cancel row ────────
+        if btn_box is not None:
+            parent_layout = btn_box.parent().layout() if btn_box.parent() else dlg.layout()
+            if parent_layout is not None:
+                # Wrap reset in its own left-aligned row
+                row = _QHBox()
+                row.setContentsMargins(0, 4, 0, 0)
+                row.addWidget(reset_btn)
+                row.addStretch()
+                idx = parent_layout.indexOf(btn_box)
+                parent_layout.insertLayout(idx, row)
+
+        if dlg.exec() == QColorDialog.Accepted:
+            color = dlg.selectedColor()
+            if color.isValid():
+                self.accent_color = color
+                self.apply_styles()
+                self.rebuild_icons()
+                self._update_progress_btn_colors()
+                self._update_color_btn_swatch()
+                self._update_help_badges()
+
+    def reset_accent_color(self):
+        """Reset only the accent color to the default, keeping theme and data intact."""
+        self.accent_color = QColor(self.default_accent)
+        self.apply_styles()
+        self.rebuild_icons()
+        self._update_progress_btn_colors()
+        self._update_color_btn_swatch()
+        self._update_help_badges()
+
+    def _update_color_btn_swatch(self):
+        """Update the Theme Color button to show the current accent color as a swatch."""
+        if not hasattr(self, "color_btn"):
+            return
+        c = self.accent_color.name()
+        self.color_btn.setText(f"🎨 Theme Color")
+        self.color_btn.setStyleSheet(
+            f"border-left: 5px solid {c};"
+        )
+
+    def _update_help_badges(self):
+        """Repaint all help page step badges with the current accent color."""
+        if not hasattr(self, "_help_badges"):
+            return
+        c = self.accent_color.name()
+        r, g, b = self.accent_color.red(), self.accent_color.green(), self.accent_color.blue()
+        lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+        txt = "#1a1a1a" if lum > 0.55 else "white"
+        for badge in self._help_badges:
+            badge.setStyleSheet(
+                f"background: {c}; color: {txt}; "
+                f"border-radius: 10px; font-size: 16px; font-weight: 900;"
+            )
 
     def pick_font(self):
         font, ok = QFontDialog.getFont(QFont(self.base_font_family, self.base_font_size), self, "Choose Font")
@@ -527,6 +647,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.base_font_family = "Segoe UI"
         self.base_font_size   = 10
         self.set_theme_mode("dark")
+        self._update_color_btn_swatch()
 
     def reset_all(self):
         """Hard reset: clear all cache, progress, and form state across every page."""
@@ -596,11 +717,45 @@ class ReuseAnalysisWindow(QMainWindow):
         self._diff_raw_data = []
         self._clear_diff()
 
-        # ── Reset report fields ───────────────────────────────────────────────
+        # ── Reset report fields + all progress UI ────────────────────────────────
         if hasattr(self, "report_output_field"):
             self.report_output_field.clear_selection()
         if hasattr(self, "report_target_field"):
             self.report_target_field.clear_selection()
+        # Delegate to _on_report_clear which resets all progress widgets,
+        # step list, stat chips, labels, log box and Open Report button.
+        if hasattr(self, "_on_report_clear"):
+            self._on_report_clear()
+        # Explicitly clear the output folder display and path list
+        if hasattr(self, "_report_folder_display"):
+            self._report_folder_display.clear()
+        if hasattr(self, "_report_folder_path"):
+            self._report_folder_path.clear()
+        # Clear cached output paths
+        self._report_output_file = ""
+        self._last_report_excel  = ""
+
+        # ── Reset Complexity & Compatibility page ─────────────────────────────
+        if hasattr(self, "complexity_report_display"):
+            self.complexity_report_display.clear()
+        if hasattr(self, "complexity_progress_bar"):
+            self.complexity_progress_bar.setValue(0)
+            self.complexity_progress_bar.setVisible(False)
+        if hasattr(self, "complexity_status_lbl"):
+            self.complexity_status_lbl.setText("")
+            self.complexity_status_lbl.setVisible(False)
+        if hasattr(self, "complexity_log"):
+            self.complexity_log.clear()
+            self.complexity_log.setVisible(False)
+        if hasattr(self, "complexity_open_report_btn"):
+            self.complexity_open_report_btn.setEnabled(False)
+        if hasattr(self, "complexity_timer_lbl"):
+            self.complexity_timer_lbl.setText("")
+            self.complexity_timer_lbl.setVisible(False)
+        if hasattr(self, "_cx_timer"):
+            self._cx_timer.stop()
+        self._cx_thread = None
+        self._cx_worker = None
 
         QMessageBox.information(self, "Reset Complete", "All data and cache have been cleared.")
 
@@ -708,19 +863,27 @@ class ReuseAnalysisWindow(QMainWindow):
         header_layout.addWidget(header_left)
         header_layout.addStretch()
 
-        self.theme_btn = IconTextButton("🌙 Dark", QIcon())
+        self.theme_btn = IconTextButton("Dark", QIcon())
         self.theme_btn.setObjectName("pickerButton")
         self.theme_btn.setMinimumWidth(118)
         self.theme_btn.setFixedHeight(38)
         self.theme_btn.clicked.connect(self.toggle_theme)
 
-        self.reset_all_btn = IconTextButton("🔄  Reset", QIcon())
+        self.color_btn = IconTextButton("Theme Color", QIcon())
+        self.color_btn.setObjectName("pickerButton")
+        self.color_btn.setMinimumWidth(138)
+        self.color_btn.setFixedHeight(38)
+        self.color_btn.clicked.connect(self.pick_accent_color)
+
+        self.reset_all_btn = IconTextButton("↺ Reset", QIcon())
         self.reset_all_btn.setObjectName("pickerButton")
         self.reset_all_btn.setMinimumWidth(118)
         self.reset_all_btn.setFixedHeight(38)
         self.reset_all_btn.clicked.connect(self.reset_all)
 
         header_layout.addWidget(self.theme_btn)
+        header_layout.addSpacing(8)
+        header_layout.addWidget(self.color_btn)
         header_layout.addSpacing(8)
         header_layout.addWidget(self.reset_all_btn)
         right_layout.addWidget(self.header)
@@ -1592,8 +1755,7 @@ class ReuseAnalysisWindow(QMainWindow):
             )
             return
 
-        self.ref_submit_btn.setEnabled(False)
-        self.ref_submit_btn.setText("Submitting...")
+        self.ref_submit_btn.start_progress("Submitting …")
         from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
 
@@ -1618,8 +1780,7 @@ class ReuseAnalysisWindow(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Submit Error", str(e))
         finally:
-            self.ref_submit_btn.setEnabled(True)
-            self.ref_submit_btn.setText("Submit")
+            self.ref_submit_btn.stop_progress("Submit")
 
     # ── submit consolidated ───────────────────────────────────────────────────
     def submit_consolidated(self):
@@ -1819,6 +1980,13 @@ class ReuseAnalysisWindow(QMainWindow):
         self.report_phase_label.setText("Extracting — waiting to start")
         self.report_generate_btn.setEnabled(False)
         self.report_generate_btn.setText("Running …")
+        # ── Start elapsed timer ───────────────────────────────────────────
+        self._report_start_time = time.time()
+        if not hasattr(self, "_report_timer"):
+            self._report_timer = QTimer(self)
+            self._report_timer.setInterval(1000)
+            self._report_timer.timeout.connect(self._update_report_elapsed)
+        self._report_timer.start()
         self.report_cancel_btn.setVisible(True)
         self.report_cancel_btn.setEnabled(True)
         self.report_cancel_btn.setText("Cancel")
@@ -2124,6 +2292,160 @@ class ReuseAnalysisWindow(QMainWindow):
         QMessageBox.information(self, "HTML Report Ready",
             f"HTML report saved successfully.\n\nFile:\n{html_path}")
 
+    def _restructure_excel_sheets(self, excel_path: str) -> None:
+        """
+        Post-process the Excel workbook:
+        1. Move Complexity Level Summary + Compatibility Score Distribution
+           from Construct_Summary sheet to Summary sheet.
+        2. Delete Construct_Summary sheet.
+        3. Remove Construct-by-Construct Totals section from Summary sheet.
+        """
+        import openpyxl
+        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from copy import copy
+
+        wb = openpyxl.load_workbook(excel_path)
+        changed = False
+
+        # ── Step 1: Extract cx/cp sections from Construct_Summary ────────────
+        cx_rows_data = []   # list of (level, count, pct, row_obj)
+        cp_rows_data = []   # list of (range_label, count, pct, row_obj)
+
+        if "Construct_Summary" in wb.sheetnames:
+            ws_cs = wb["Construct_Summary"]
+            section = None
+            for row in ws_cs.iter_rows():
+                vals = [c.value for c in row]
+                if not any(v is not None for v in vals):
+                    continue
+                first = str(vals[0] or "").strip()
+                if "Complexity Level Summary" in first:
+                    section = "cx"; continue
+                if "Compatibility Score Distribution" in first:
+                    section = "cp"; continue
+                if "Construct-by-Construct" in first:
+                    section = "skip"; continue
+                if first in ("Complexity Level", "Score Range", "Construct",
+                             "Function Count", "% of Total"):
+                    continue
+                if first == "Total":
+                    section = None; continue
+                if section == "cx" and vals[1] is not None:
+                    cx_rows_data.append(vals)
+                elif section == "cp" and vals[1] is not None:
+                    cp_rows_data.append(vals)
+
+            # ── Step 2: Append cx/cp to Summary sheet ────────────────────────
+            if "Summary" in wb.sheetnames and (cx_rows_data or cp_rows_data):
+                ws_sum = wb["Summary"]
+
+                # Find last used row
+                last_row = ws_sum.max_row
+                # Add blank separator
+                last_row += 2
+
+                header_fill   = PatternFill("solid", start_color="1F4E78")
+                header_font   = Font(bold=True, color="FFFFFF", size=11)
+                section_fill  = PatternFill("solid", start_color="2E75B6")
+                section_font  = Font(bold=True, color="FFFFFF", size=11)
+                center_align  = Alignment(horizontal="center", vertical="center")
+
+                def _write_section(ws, start_row, title, col_headers, data_rows, row_colors):
+                    # Section title
+                    title_cell = ws.cell(row=start_row, column=1, value=title)
+                    title_cell.fill = section_fill
+                    title_cell.font = section_font
+                    title_cell.alignment = center_align
+                    ws.merge_cells(start_row=start_row, start_column=1,
+                                   end_row=start_row, end_column=3)
+                    r = start_row + 1
+                    # Header row
+                    for ci, hdr in enumerate(col_headers, 1):
+                        c = ws.cell(row=r, column=ci, value=hdr)
+                        c.fill = header_fill
+                        c.font = header_font
+                        c.alignment = center_align
+                    r += 1
+                    # Data rows
+                    for vals in data_rows:
+                        label = str(vals[0] or "").strip()
+                        bg, fg = row_colors.get(label, ("FFFFFF", "000000"))
+                        for ci, v in enumerate(vals[:3], 1):
+                            cell = ws.cell(row=r, column=ci, value=v)
+                            cell.fill = PatternFill("solid", start_color=bg)
+                            cell.font = Font(bold=(ci == 1), color=fg)
+                            if ci > 1:
+                                cell.alignment = center_align
+                        r += 1
+                    # Total row
+                    total_count = sum(int(v[1] or 0) for v in data_rows if v[1] is not None)
+                    ws.cell(row=r, column=1, value="Total").font = Font(bold=True)
+                    ws.cell(row=r, column=2, value=total_count).alignment = center_align
+                    ws.cell(row=r, column=2).font = Font(bold=True)
+                    ws.cell(row=r, column=3, value="100%").alignment = center_align
+                    ws.cell(row=r, column=3).font = Font(bold=True)
+                    return r + 1
+
+                CX_COLORS = {
+                    "Low":       ("D6E4BC", "3A5A10"),
+                    "Medium":    ("FFE699", "7A5500"),
+                    "High":      ("F4B183", "7A3010"),
+                    "Very High": ("FF7070", "5A0000"),
+                    "Complex":   ("CC0000", "FFFFFF"),
+                }
+                CP_COLORS = {
+                    "0% – 24%  (Poor)":        ("FFC7CE", "9C0006"),
+                    "25% – 49%  (Low)":        ("FFEB9C", "9C5700"),
+                    "50% – 74%  (Medium)":     ("FFEB9C", "9C5700"),
+                    "75% – 89%  (Good)":       ("C6EFCE", "276221"),
+                    "90% – 100%  (Excellent)": ("A9D18E", "1A3A00"),
+                }
+
+                next_row = last_row
+                if cx_rows_data:
+                    next_row = _write_section(
+                        ws_sum, next_row,
+                        "📊 Complexity Level Summary",
+                        ["Complexity Level", "Function Count", "% of Total"],
+                        cx_rows_data, CX_COLORS
+                    )
+                    next_row += 1
+
+                if cp_rows_data:
+                    _write_section(
+                        ws_sum, next_row,
+                        "🔗 Compatibility Score Distribution",
+                        ["Score Range", "Function Count", "% of Total"],
+                        cp_rows_data, CP_COLORS
+                    )
+
+                changed = True
+
+            # ── Step 3: Delete Construct_Summary sheet ────────────────────────
+            del wb["Construct_Summary"]
+            changed = True
+
+        # ── Step 4: Remove Construct-by-Construct Totals from Summary ────────
+        if "Summary" in wb.sheetnames:
+            ws_sum = wb["Summary"]
+            rows_to_delete = []
+            in_construct = False
+            for row in ws_sum.iter_rows():
+                first = str(row[0].value or "").strip()
+                if "Construct-by-Construct" in first:
+                    in_construct = True
+                if in_construct:
+                    rows_to_delete.append(row[0].row)
+            # Delete from bottom up to preserve row indices
+            for r in reversed(rows_to_delete):
+                ws_sum.delete_rows(r)
+            if rows_to_delete:
+                changed = True
+
+        if changed:
+            wb.save(excel_path)
+        wb.close()
+
     def _write_html_from_excel(self, excel_path: str, save_path: str = None) -> str:
         """
         Read all four sheets of FuncAtlas_Report.xlsx and produce a
@@ -2131,15 +2453,40 @@ class ReuseAnalysisWindow(QMainWindow):
         """
         import openpyxl
 
+        # Restructure Excel: move cx/cp from Construct_Summary → Summary, delete Construct_Summary
+        self._restructure_excel_sheets(excel_path)
+
         wb = openpyxl.load_workbook(excel_path, data_only=True)
 
-        # ── Sheet 2: Summary ──────────────────────────────────────────────────
+        # ── Sheet: Summary (contains key-value rows + complexity level + compat distribution) ──
+        cx_summary  = {}   # level -> (count, pct)
+        cp_summary  = {}   # range label -> (count, pct)
         summary_rows = []
         if "Summary" in wb.sheetnames:
             ws2 = wb["Summary"]
-            for row in ws2.iter_rows(min_row=2, values_only=True):
-                if row and row[0] is not None:
-                    summary_rows.append((str(row[0]), str(row[1]) if row[1] is not None else ""))
+            all_vals = [r for r in ws2.iter_rows(min_row=1, values_only=True)]
+            section = None
+            for row in all_vals:
+                if not row or all(v is None for v in row):
+                    continue
+                first = str(row[0] or "").strip()
+                if "Complexity Level Summary" in first:
+                    section = "cx"; continue
+                if "Compatibility Score Distribution" in first:
+                    section = "cp"; continue
+                if "Construct-by-Construct" in first:
+                    # skip construct-by-construct totals entirely
+                    section = "skip"; continue
+                if first in ("Complexity Level", "Score Range", "Construct", "Function Count", "% of Total"):
+                    continue   # header row
+                if first == "Total":
+                    section = None; continue
+                if section == "cx" and row[1] is not None:
+                    cx_summary[first] = (row[1], str(row[2] or ""))
+                elif section == "cp" and row[1] is not None:
+                    cp_summary[first] = (row[1], str(row[2] or ""))
+                elif section is None and row[0] is not None and row[1] is not None:
+                    summary_rows.append((str(row[0]), str(row[1])))
 
         # ── Sheet 1: Function_Match_Report ────────────────────────────────────
         sheet1_data = {}
@@ -2243,18 +2590,85 @@ class ReuseAnalysisWindow(QMainWindow):
                 return ""
 
         # ── Summary HTML block ────────────────────────────────────────────────
+        CX_COLORS = {
+            "Low":       ("#d6e4bc", "#3a5a10"),
+            "Medium":    ("#ffe699", "#7a5500"),
+            "High":      ("#f4b183", "#7a3010"),
+            "Very High": ("#ff7070", "#5a0000"),
+            "Complex":   ("#cc0000", "#ffffff"),
+        }
+        CP_COLORS = {
+            "0% – 24%  (Poor)":         ("#ffc7ce", "#9c0006"),
+            "25% – 49%  (Low)":         ("#ffeb9c", "#9c5700"),
+            "50% – 74%  (Medium)":      ("#ffeb9c", "#9c5700"),
+            "75% – 89%  (Good)":        ("#c6efce", "#276221"),
+            "90% – 100%  (Excellent)":  ("#a9d18e", "#1a3a00"),
+        }
+
         summary_html = ""
+        # Build summary key-value block (narrow column)
+        kv_block = ""
         if summary_rows:
             rows_html = "".join(
                 f'<tr><td class="sum-key">{k}</td><td class="sum-val">{v}</td></tr>'
                 for k, v in summary_rows
             )
+            kv_block = f"""
+    <div class="sum-card sum-card-narrow">
+      <h2>\U0001f4cb Summary</h2>
+      <table class="summary-table">
+        <tbody>{rows_html}</tbody>
+      </table>
+    </div>"""
+
+        # Build complexity level card
+        cx_block = ""
+        if cx_summary:
+            cx_rows = "".join(
+                f'<tr>'
+                f'<td class="sum-badge" style="background:{CX_COLORS.get(lv,("#eee","#333"))[0]};color:{CX_COLORS.get(lv,("#eee","#333"))[1]}">{lv}</td>'
+                f'<td class="sum-cnt">{cnt}</td>'
+                f'<td class="sum-pct">{pct}</td>'
+                f'</tr>'
+                for lv, (cnt, pct) in cx_summary.items()
+            )
+            cx_block = f"""
+    <div class="sum-card">
+      <h2>\U0001f4ca Complexity Level Distribution</h2>
+      <table class="sum-table">
+        <thead><tr><th>Level</th><th>Functions</th><th>% of Total</th></tr></thead>
+        <tbody>{cx_rows}</tbody>
+      </table>
+    </div>"""
+
+        # Build compatibility score card
+        cp_block = ""
+        if cp_summary:
+            cp_rows = "".join(
+                f'<tr>'
+                f'<td class="sum-badge" style="background:{CP_COLORS.get(label,("#eee","#333"))[0]};color:{CP_COLORS.get(label,("#eee","#333"))[1]}">{label}</td>'
+                f'<td class="sum-cnt">{cnt}</td>'
+                f'<td class="sum-pct">{pct}</td>'
+                f'</tr>'
+                for label, (cnt, pct) in cp_summary.items()
+            )
+            cp_block = f"""
+    <div class="sum-card">
+      <h2>\U0001f517 Compatibility Score Distribution</h2>
+      <table class="sum-table">
+        <thead><tr><th>Score Range</th><th>Functions</th><th>% of Total</th></tr></thead>
+        <tbody>{cp_rows}</tbody>
+      </table>
+    </div>"""
+
+        if kv_block or cx_block or cp_block:
             summary_html = f"""
 <section class="summary-block">
-  <h2>Summary</h2>
-  <table class="summary-table">
-    <tbody>{rows_html}</tbody>
-  </table>
+  <div class="summary-grid-3">
+{kv_block}
+{cx_block}
+{cp_block}
+  </div>
 </section>"""
 
         # ── Detail table rows ─────────────────────────────────────────────────
@@ -2297,8 +2711,37 @@ class ReuseAnalysisWindow(QMainWindow):
   h2 {{ color: #1f4e78; font-size: 15px; margin-bottom: 10px; }}
 
   /* ── Summary block ── */
-  .summary-block {{ margin-bottom: 28px; }}
-  .summary-table {{ border-collapse: collapse; min-width: 480px; background: #fff;
+  .summary-block {{ margin-bottom: 32px; }}
+  .summary-grid-3 {{
+    display: grid;
+    grid-template-columns: minmax(220px, 0.8fr) 1fr 1fr;
+    gap: 20px;
+    align-items: start;
+  }}
+  .sum-card {{
+    background: #fff; border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.09);
+    padding: 18px 20px;
+  }}
+  .sum-card-narrow {{
+    background: #fff; border-radius: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,.09);
+    padding: 18px 20px;
+  }}
+  .sum-card h2, .sum-card-narrow h2 {{ margin-bottom: 12px; font-size: 14px; color: #1f4e78; }}
+  .sum-table {{ border-collapse: collapse; width: 100%; }}
+  .sum-table th {{
+    background: #1f4e78; color: #fff; padding: 7px 12px;
+    font-size: 11px; text-align: center;
+  }}
+  .sum-table td {{ padding: 6px 12px; border-bottom: 1px solid #e0ecf8; }}
+  .sum-table tr:last-child td {{ border-bottom: none; }}
+  td.sum-badge {{ font-weight: bold; border-radius: 4px; padding: 4px 10px; }}
+  td.sum-cnt {{ text-align: center; font-weight: bold; color: #1a3a5c; }}
+  td.sum-pct {{ text-align: center; color: #5a7a9a; }}
+
+  /* legacy summary table */
+  .summary-table {{ border-collapse: collapse; width: 100%; background: transparent;
                     border-radius: 8px; overflow: hidden;
                     box-shadow: 0 2px 8px rgba(0,0,0,.08); }}
   .summary-table td {{ padding: 7px 14px; border-bottom: 1px solid #dce8f4; }}
@@ -2434,11 +2877,23 @@ class ReuseAnalysisWindow(QMainWindow):
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Completed")
             self.report_summary_chips["result"].set_value("Excel ready")
+        # ── Stop elapsed timer ────────────────────────────────────────────
+        if hasattr(self, "_report_timer"):
+            self._report_timer.stop()
+        elapsed = int(time.time() - getattr(self, "_report_start_time", time.time()))
+        elapsed_str = f"{elapsed // 60}m {elapsed % 60}s" if elapsed >= 60 else f"{elapsed}s"
         self._report_append_log(f"✓ Report: {out_file}")
+        self._report_append_log(f"⏱ Total time: {elapsed_str}")
+        if hasattr(self, "report_status_label"):
+            self.report_status_label.setText(f"Done — {elapsed_str}")
+        if hasattr(self, "report_timer_lbl"):
+            self.report_timer_lbl.setText(f"⏱ {elapsed_str}")
         QMessageBox.information(self, "Report Ready",
-            f"FuncAtlas report generated successfully.\n\nFile:\n{out_file}")
+            f"FuncAtlas report generated successfully.\n\nFile:\n{out_file}\n\n⏱ Time: {elapsed_str}")
 
     def _on_report_error(self, msg: str):
+        if hasattr(self, "_report_timer"):
+            self._report_timer.stop()
         if msg == '__CANCELLED__':
             self._report_append_log("⛔ Generation cancelled by user.")
             self.report_phase_label.setText("⛔ Cancelled")
@@ -2479,11 +2934,24 @@ class ReuseAnalysisWindow(QMainWindow):
         sb = self.report_log_box.verticalScrollBar()
         sb.setValue(sb.maximum())
 
+    def _update_report_elapsed(self):
+        """Called every second to update elapsed time display while report runs."""
+        elapsed = int(time.time() - getattr(self, "_report_start_time", time.time()))
+        mins, secs = divmod(elapsed, 60)
+        btn_label   = f"Running … {mins}m {secs:02d}s" if mins else f"Running … {secs}s"
+        timer_label = f"⏱ {mins}m {secs:02d}s" if mins else f"⏱ {secs}s"
+        if hasattr(self, "report_generate_btn") and not self.report_generate_btn.isEnabled():
+            self.report_generate_btn.setText(btn_label)
+        if hasattr(self, "report_timer_lbl"):
+            self.report_timer_lbl.setText(timer_label)
+
     def _on_report_clear(self):
         self.report_output_field.clear_selection()
         self._set_report_progress(0, "Idle — ready to generate.")
         self.report_log_box.clear()
         self.report_phase_label.setText("Waiting to start")
+        if hasattr(self, "report_timer_lbl"):
+            self.report_timer_lbl.setText("")
         self.report_open_btn.setEnabled(False)
         self._report_output_file = ""
         self.report_step_widget.clear_steps()
