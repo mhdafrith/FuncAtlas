@@ -1008,6 +1008,7 @@ def create_complexity_page(win):
     layout.addStretch()
 
     win._complexity_weights = None
+    win._complexity_bands   = None
     win._complexity_s = None
     win._handled_scenarios = _load_handled_scenarios()
     win._cx_thread = None
