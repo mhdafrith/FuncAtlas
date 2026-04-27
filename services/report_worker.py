@@ -25,8 +25,11 @@ from openpyxl.styles import Font, PatternFill, Border, Side, Alignment
 from openpyxl.utils import get_column_letter
 from PySide6.QtCore import QObject, Signal
 
+from datetime import datetime
+
 from core.utils import read_source_file,\
      normalize_path, normalize_name
+from core.logger import get_logger
 
 # ── Complexity helpers (shared with complexity_worker) ────────────────────────
 CONSTRUCTS = [
@@ -77,6 +80,8 @@ class ReportCompareWorker(QObject):
     log      = Signal(str)
     finished = Signal(str)
     error    = Signal(str)
+
+    _log = get_logger('services.report_worker')
 
     def __init__(self, target_label, target_folder, ref_labels, ref_folders, output_root,
                  target_src_path="", ref_src_paths=None,
@@ -192,7 +197,9 @@ class ReportCompareWorker(QObject):
           body_text: raw extracted function body text (used for Sheet 3)
         """
         os.makedirs(self.output_root, exist_ok=True)
-        out_path = os.path.join(self.output_root, 'FuncAtlas_Report.xlsx')
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        out_path = os.path.join(self.output_root, f'FuncAtlas_Report_{ts}.xlsx')
+        self._log.info('Excel report will be saved to: %s', out_path)
         wb = Workbook()
 
         # ── shared style helpers ──────────────────────────────────────────────
@@ -346,13 +353,17 @@ class ReportCompareWorker(QObject):
         try:
             wb.save(out_path)
             final_path = out_path
+            self._log.info('Excel report saved: %s', final_path)
         except PermissionError:
-            from datetime import datetime
-            alt = os.path.join(self.output_root,
-                               f"FuncAtlas_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx")
+            ts2 = datetime.now().strftime('%Y%m%d_%H%M%S')
+            alt = os.path.join(self.output_root, f'FuncAtlas_Report_{ts2}_retry.xlsx')
             wb.save(alt)
             final_path = alt
-            self.log.emit(f"Default file was locked, saved as:\n{alt}")
+            self._log.warning('File was locked; saved as: %s', alt)
+            self.log.emit(f"File was locked, saved as:\n{alt}")
+        except Exception as exc:
+            self._log.error('Failed to save Excel report: %s', exc, exc_info=True)
+            raise
         finally:
             wb.close()
         return final_path

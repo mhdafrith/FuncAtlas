@@ -101,7 +101,7 @@ class ComplexitySettingsDialog(QDialog):
     ]
 
     DEFAULT_BANDS = [
-        ("Low",       1,   5),
+        ("Low",       0,   5),
         ("Medium",    6,  12),
         ("High",     13,  25),
         ("Very High", 26,  40),
@@ -1008,7 +1008,7 @@ def create_complexity_page(win):
     layout.addStretch()
 
     win._complexity_weights = None
-    win._complexity_bands = None
+    win._complexity_s = None
     win._handled_scenarios = _load_handled_scenarios()
     win._cx_thread = None
     win._cx_worker = None

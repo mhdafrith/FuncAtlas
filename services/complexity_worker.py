@@ -17,6 +17,8 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 from PySide6.QtCore import QObject, Signal
 
+from core.logger import get_logger
+
 from core.utils import (
     normalize_path, normalize_name, iter_source_files,
     detect_functions_in_file, extract_function_body,
@@ -467,7 +469,9 @@ class ComplexityAnalysisWorker(QObject):
         ws2.column_dimensions["B"].width = 18
         ws2.column_dimensions["C"].width = 16
 
-        out_path = os.path.join(self.output_root, "FuncAtlas_Complexity_Report.xlsx")
+        from datetime import datetime as _dt
+        _ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+        out_path = os.path.join(self.output_root, f"FuncAtlas_Complexity_Report_{_ts}.xlsx")
         wb.save(out_path)
         return out_path
 

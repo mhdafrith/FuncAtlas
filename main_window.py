@@ -54,6 +54,9 @@ from pages.diff_page import create_diff_page
 from pages.report_page import create_report_page
 from pages.help_page import create_help_page
 from pages.complexity_page import create_complexity_page
+from core.logger import get_logger, log_user_action, log_file_upload, log_output_file
+
+_log = get_logger(__name__)
 
 
 def _load_home_hero_pixmap() -> QPixmap:
@@ -92,9 +95,17 @@ class ReuseAnalysisWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+        self._log = get_logger(self.__class__.__name__)
+        self._log.info("ReuseAnalysisWindow initialising")
         self.setWindowTitle("FuncAtlas")
         self.resize(1500, 900)
         self.setMinimumSize(1240, 740)
+
+        # -- Window icon --
+        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.png")
+        if os.path.isfile(_icon_path):
+            self.setWindowIcon(QIcon(_icon_path))
+            self._log.debug("Window icon set from %s", _icon_path)
 
         self.default_accent   = QColor("#3BA8FF")
         self.accent_color     = QColor(self.default_accent)
@@ -525,6 +536,7 @@ class ReuseAnalysisWindow(QMainWindow):
         mode = (mode or "dark").lower()
         if mode not in ThemeManager.THEMES:
             mode = "dark"
+        log_user_action("toggle", f"Theme → {mode}", page="settings")
         self.current_theme = mode
         self.theme = ThemeManager.THEMES[mode]
         self.apply_styles()
@@ -614,7 +626,7 @@ class ReuseAnalysisWindow(QMainWindow):
         if not hasattr(self, "color_btn"):
             return
         c = self.accent_color.name()
-        self.color_btn.setText(f"🎨 Theme Color")
+        self.color_btn.setText(f"Theme Color")
         self.color_btn.setStyleSheet(
             f"border-left: 5px solid {c};"
         )
@@ -659,6 +671,7 @@ class ReuseAnalysisWindow(QMainWindow):
         )
         if reply != QMessageBox.Yes:
             return
+        log_user_action("click", "Reset All", extra="user confirmed full reset")
 
         # ── Clear scan cache ──────────────────────────────────────────────────
         with SCAN_CACHE_LOCK:
@@ -810,15 +823,34 @@ class ReuseAnalysisWindow(QMainWindow):
 
         brand_wrap   = QWidget()
         brand_wrap.setStyleSheet("background: transparent;")
-        brand_layout = QVBoxLayout(brand_wrap)
-        brand_layout.setContentsMargins(0, 0, 0, 0)
-        brand_layout.setSpacing(2)
+        brand_layout = QHBoxLayout(brand_wrap)
+        brand_layout.setContentsMargins(4, 0, 0, 0)
+        brand_layout.setSpacing(10)
+
+        # ── Logo icon ────────────────────────────────────────────────────────
+        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.png")
+        brand_logo_lbl = QLabel()
+        brand_logo_lbl.setFixedSize(38, 38)
+        brand_logo_lbl.setStyleSheet("background: transparent;")
+        if os.path.isfile(_icon_path):
+            _pm = QPixmap(_icon_path).scaled(38, 38, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            brand_logo_lbl.setPixmap(_pm)
+        brand_layout.addWidget(brand_logo_lbl)
+
+        # ── Text block ───────────────────────────────────────────────────────
+        brand_text_wrap = QWidget()
+        brand_text_wrap.setStyleSheet("background: transparent;")
+        brand_text_layout = QVBoxLayout(brand_text_wrap)
+        brand_text_layout.setContentsMargins(0, 0, 0, 0)
+        brand_text_layout.setSpacing(1)
         brand_title    = QLabel("FuncAtlas")
         brand_title.setObjectName("brandTitle")
         brand_subtitle = QLabel("Enterprise Desktop Suite")
         brand_subtitle.setObjectName("brandSubtitle")
-        brand_layout.addWidget(brand_title)
-        brand_layout.addWidget(brand_subtitle)
+        brand_text_layout.addWidget(brand_title)
+        brand_text_layout.addWidget(brand_subtitle)
+        brand_layout.addWidget(brand_text_wrap, 1)
+
         sidebar_layout.addWidget(brand_wrap)
 
         nav_items = [
@@ -1058,6 +1090,7 @@ class ReuseAnalysisWindow(QMainWindow):
 
         title, subtitle = headers[page_name]
         self.set_header(title, subtitle)
+        log_user_action("navigate", f"{page_name} page", page=page_name)
         if hasattr(self, "header_status"):
             self.header_status.setText(title)
 
@@ -1347,6 +1380,8 @@ class ReuseAnalysisWindow(QMainWindow):
             self.view_title.setText(name)
             self.view_meta.setText(fp)
             self.view_text.setText(body)
+            log_user_action("click", f"Function: {name}", page="view",
+                            extra=f"file={os.path.basename(fp)}")
 
     def on_diff_item_clicked(self, item, column):
         """Show diff for clicked function.
@@ -1716,6 +1751,8 @@ class ReuseAnalysisWindow(QMainWindow):
         target_folders = self.ref_target_field.value()
         ref_folders    = self.ref_bases_field.value()
         function_list  = self.ref_function_field.value()
+        log_user_action("click", "Submit Reference button", page="reference",
+                        extra=f"target_count={len(target_folders)}, ref_count={len(ref_folders)}, fn_files={len(function_list)}")
 
         if not target_folders:
             QMessageBox.warning(self, "Missing Input", "Please select Target Base Folder.")
@@ -1771,6 +1808,11 @@ class ReuseAnalysisWindow(QMainWindow):
                 entries.append(self.build_source_entry("reference", folder))
             self.register_sources(entries, function_list, ref_folders)
 
+            for f in function_list:
+                log_file_upload("file", f, field="Function List")
+            _log.info("submit_reference success: target=%s, refs=%d, fn_files=%d, sources=%d",
+                      target_root, len(ref_folders), len(function_list), len(entries))
+
             ref_text = "\n".join(ref_folders) if ref_folders else "No reference folders selected"
             fn_text  = "\n".join(function_list) if function_list else "No function list selected"
             QMessageBox.information(self, "Success",
@@ -1786,6 +1828,8 @@ class ReuseAnalysisWindow(QMainWindow):
     def submit_consolidated(self):
         use_folder_mode = hasattr(self, "con_toggle_folder_btn") and \
                           self.con_toggle_folder_btn.isChecked()
+        log_user_action("click", "Submit Consolidated button", page="consolidated",
+                        extra=f"folder_mode={use_folder_mode}")
 
         self._reset_view_and_diff()
 
@@ -1875,6 +1919,10 @@ class ReuseAnalysisWindow(QMainWindow):
         self.con_submit_btn.setEnabled(True)
         self.con_submit_btn.setText("Submit")
         self.con_output_link_field.set_output(result["output_file"])
+        log_output_file(result["output_file"], kind="Consolidated Output Excel")
+        _log.info("consolidated finished: fn_list_files=%d, functions_read=%d, matched=%d, unmatched=%d",
+                  result['function_list_count'], result['functions_read'],
+                  result['matched_count'], result.get('unmatched_count', 0))
         QMessageBox.information(self, "Success",
             f"Output Excel generated successfully.\n\n"
             f"Function List Files: {result['function_list_count']}\n"
@@ -1887,6 +1935,7 @@ class ReuseAnalysisWindow(QMainWindow):
     def on_consolidated_error(self, message: str):
         self.con_submit_btn.setEnabled(True)
         self.con_submit_btn.setText("Submit")
+        _log.error("consolidated error: %s", message)
         QMessageBox.critical(self, "Processing Error", message)
         self.con_worker = None; self.con_thread = None
 
@@ -1900,6 +1949,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self._report_folder_path.clear()
         self._report_folder_path.append(folder)
         self._report_folder_display.setText(folder)
+        log_file_upload("folder", folder, field="Report Output Folder")
 
     # ── report slots ──────────────────────────────────────────────────────────
     def _set_report_progress(self, pct: int, status_text: str = ""):
@@ -1949,6 +1999,8 @@ class ReuseAnalysisWindow(QMainWindow):
     def _on_report_generate(self):
         from ui.widgets import StepStatusWidget
         output_root = self.report_output_field.value()
+        log_user_action("click", "Generate Report button", page="report",
+                        extra=f"output_root={output_root!r}")
         if not output_root:
             QMessageBox.warning(self, "Missing Folder", "Please select an output folder.")
             return
@@ -1999,7 +2051,8 @@ class ReuseAnalysisWindow(QMainWindow):
         import shutil as _shutil
         with SCAN_CACHE_LOCK:
             SCAN_CACHE.clear()
-        _extracted_root = os.path.join(output_root, 'FuncAtlas_Extracted')
+        import tempfile as _tf
+        _extracted_root = os.path.join(_tf.gettempdir(), 'FuncAtlas_Extracted')
         if os.path.isdir(_extracted_root):
             try:
                 _shutil.rmtree(_extracted_root)
@@ -2097,6 +2150,8 @@ class ReuseAnalysisWindow(QMainWindow):
         """Same pipeline as _on_report_generate but produces an HTML report."""
         from ui.widgets import StepStatusWidget
         output_root = self.report_output_field.value()
+        log_user_action("click", "Generate HTML Report button", page="report",
+                        extra=f"output_root={output_root!r}")
         if not output_root:
             QMessageBox.warning(self, "Missing Folder", "Please select an output folder.")
             return
@@ -2140,7 +2195,8 @@ class ReuseAnalysisWindow(QMainWindow):
         import shutil as _shutil
         with SCAN_CACHE_LOCK:
             SCAN_CACHE.clear()
-        _extracted_root = os.path.join(output_root, 'FuncAtlas_Extracted')
+        import tempfile as _tf
+        _extracted_root = os.path.join(_tf.gettempdir(), 'FuncAtlas_Extracted')
         if os.path.isdir(_extracted_root):
             try:
                 _shutil.rmtree(_extracted_root)
@@ -2227,7 +2283,9 @@ class ReuseAnalysisWindow(QMainWindow):
     def _on_compare_done_html(self, out_excel: str):
         """Convert the generated Excel to HTML — ask user where to save."""
         from ui.widgets import StepStatusWidget
-        default_name = os.path.splitext(os.path.basename(out_excel))[0] + "_FuncAtlas_Report.html"
+        log_output_file(out_excel, kind="Excel (pre-HTML conversion)")
+        _ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_name = os.path.splitext(os.path.basename(out_excel))[0] + f"_FuncAtlas_Report_{_ts}.html"
         default_dir  = os.path.dirname(out_excel)
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Save HTML Report As", os.path.join(default_dir, default_name),
@@ -2275,7 +2333,8 @@ class ReuseAnalysisWindow(QMainWindow):
                 "Please select or generate an Excel report first\n"
                 "(use Browse Report or Generate Report on this page).")
             return
-        default_name = os.path.splitext(os.path.basename(path))[0] + "_FuncAtlas_Report.html"
+        _ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+        default_name = os.path.splitext(os.path.basename(path))[0] + f"_FuncAtlas_Report_{_ts}.html"
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Save HTML Report As",
             os.path.join(os.path.dirname(path), default_name),
@@ -2851,7 +2910,7 @@ class ReuseAnalysisWindow(QMainWindow):
 </body>
 </html>"""
 
-        html_path = save_path if save_path else (os.path.splitext(excel_path)[0] + "_FuncAtlas_Report.html")
+        html_path = save_path if save_path else (os.path.splitext(excel_path)[0] + f"_FuncAtlas_Report_{__import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
         with open(html_path, "w", encoding="utf-8") as fh:
             fh.write(html)
         return html_path
@@ -2882,6 +2941,8 @@ class ReuseAnalysisWindow(QMainWindow):
         from ui.widgets import StepStatusWidget
         self._report_output_file = out_file
         self._last_report_excel  = out_file
+        log_output_file(out_file, kind="Excel Report")
+        _log.info("_on_compare_done: report ready at %s", out_file)
         if hasattr(self, 'complexity_report_display'):
             self.complexity_report_display.setText(out_file)
         self.report_step_widget.set_state("📊 Comparing & Writing Excel Report",
@@ -2906,8 +2967,84 @@ class ReuseAnalysisWindow(QMainWindow):
             self.report_status_label.setText(f"Done — {elapsed_str}")
         if hasattr(self, "report_timer_lbl"):
             self.report_timer_lbl.setText(f"⏱ {elapsed_str}")
-        QMessageBox.information(self, "Report Ready",
-            f"FuncAtlas report generated successfully.\n\nFile:\n{out_file}\n\n⏱ Time: {elapsed_str}")
+        self._show_report_log_dialog(out_file, elapsed_str)
+
+
+    def _show_report_log_dialog(self, out_file: str, elapsed_str: str):
+        """Show a Report Log dialog matching the detailed log window (image 2)."""
+        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
+                                        QLabel, QPushButton, QTextEdit, QFrame)
+        from PySide6.QtGui import QIcon, QFont
+        from PySide6.QtCore import Qt
+        import os
+
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Report Log")
+        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.png")
+        if os.path.isfile(_icon_path):
+            dlg.setWindowIcon(QIcon(_icon_path))
+        dlg.resize(780, 520)
+        dlg.setMinimumSize(600, 400)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 16, 20, 16)
+        layout.setSpacing(12)
+
+        # ── Header row ───────────────────────────────────────────────────────
+        hdr_row = QHBoxLayout()
+        hdr_lbl = QLabel("Report Log File")
+        hdr_lbl.setStyleSheet("font-size: 14px; font-weight: 700;")
+        close_btn = QPushButton("×")
+        close_btn.setFixedSize(32, 32)
+        close_btn.setStyleSheet(
+            "QPushButton { border: 1px solid #ccc; border-radius: 6px; font-size: 16px; "
+            "background: transparent; } QPushButton:hover { background: #eee; }"
+        )
+        close_btn.clicked.connect(dlg.accept)
+        hdr_row.addWidget(hdr_lbl, 1)
+        hdr_row.addWidget(close_btn)
+        layout.addLayout(hdr_row)
+
+        # ── Log text box ─────────────────────────────────────────────────────
+        log_box = QTextEdit()
+        log_box.setReadOnly(True)
+        log_box.setFont(QFont("Consolas", 10))
+        log_box.setFrameShape(QFrame.Box)
+        log_box.setStyleSheet(
+            "QTextEdit { border: 1px solid #ddd; border-radius: 8px; "
+            "padding: 10px; background: #fff; color: #1a1a1a; }"
+        )
+
+        # Populate with full log from the in-app log box
+        full_log = self.report_log_box.toPlainText().strip()
+        if full_log:
+            log_box.setPlainText(full_log)
+        else:
+            log_box.setPlainText(
+                f"Report generated successfully.\n"
+                f"Output file: {out_file}\n"
+                f"Total time: {elapsed_str}"
+            )
+
+        # Scroll to bottom
+        sb = log_box.verticalScrollBar()
+        sb.setValue(sb.maximum())
+        layout.addWidget(log_box, 1)
+
+        # ── Bottom OK button ─────────────────────────────────────────────────
+        btn_row = QHBoxLayout()
+        ok_btn = QPushButton("OK")
+        ok_btn.setFixedSize(90, 34)
+        ok_btn.setStyleSheet(
+            "QPushButton { background: #3BA8FF; color: white; border-radius: 8px; "
+            "font-weight: 700; } QPushButton:hover { background: #2E8FE0; }"
+        )
+        ok_btn.clicked.connect(dlg.accept)
+        btn_row.addStretch()
+        btn_row.addWidget(ok_btn)
+        layout.addLayout(btn_row)
+
+        dlg.exec()
 
     def _on_report_error(self, msg: str):
         if hasattr(self, "_report_timer"):
@@ -2936,6 +3073,7 @@ class ReuseAnalysisWindow(QMainWindow):
 
     def _on_report_cancel(self):
         """Cancel any in-progress report generation."""
+        log_user_action("click", "Cancel Report button", page="report")
         self.report_cancel_btn.setEnabled(False)
         self.report_cancel_btn.setText("Cancelling …")
         # Signal extraction worker to stop
@@ -2964,6 +3102,7 @@ class ReuseAnalysisWindow(QMainWindow):
             self.report_timer_lbl.setText(timer_label)
 
     def _on_report_clear(self):
+        log_user_action("click", "Clear Report button", page="report")
         self.report_output_field.clear_selection()
         self._set_report_progress(0, "Idle — ready to generate.")
         self.report_log_box.clear()
@@ -2986,6 +3125,8 @@ class ReuseAnalysisWindow(QMainWindow):
         from PySide6.QtCore import QUrl
 
         excel_path = getattr(self, "_last_report_excel", "") or ""
+        log_user_action("click", "Open Report button", page="report",
+                        extra=f"excel_path={excel_path!r}")
 
         if excel_path and os.path.exists(excel_path):
             QDesktopServices.openUrl(QUrl.fromLocalFile(excel_path))
@@ -3142,6 +3283,8 @@ class ReuseAnalysisWindow(QMainWindow):
 
     def closeEvent(self, event):
         """Stop and wait for every background thread before closing."""
+        _log.info("Application closing — stopping background threads")
+        log_user_action("close", "Application window")
         for thread in list(self._active_threads):
             if thread and thread.isRunning():
                 thread.quit()

@@ -13,6 +13,9 @@ KEY CHANGES vs original:
 
 import os
 from PySide6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve, Signal
+from core.logger import get_logger, log_file_upload, log_user_action
+
+_log = get_logger(__name__)
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QWidget, QFrame, QLabel, QPushButton, QProgressBar,
@@ -725,6 +728,12 @@ class FolderField(QWidget):
             self.selected_paths = old_paths + added
             self._update_display()
             self.selectionChanged.emit()
+            # ── Log every newly added folder ─────────────────────────────────
+            label = getattr(self, "label_text", "FolderField")
+            for p in added:
+                log_file_upload("folder", p, field=label)
+            _log.debug("FolderField(multi): %d new folder(s) added, %d total",
+                       len(added), len(self.selected_paths))
         else:
             # CHANGE: single select uses native OS dialog directly (no custom dialog)
             folder = self._pick_single_folder_native("Select Folder")
@@ -732,6 +741,10 @@ class FolderField(QWidget):
                 self.selected_paths = [normalize_path(folder)]
                 self._update_display()
                 self.selectionChanged.emit()
+                # ── Log the single folder pick ────────────────────────────────
+                label = getattr(self, "label_text", "FolderField")
+                log_file_upload("folder", self.selected_paths[0], field=label)
+                _log.debug("FolderField(single): selected %s", self.selected_paths[0])
 
     def _update_display(self):
         if self.multi:
@@ -841,6 +854,12 @@ class MultiFileField(QWidget):
         self.selected_paths = self.selected_paths + new_files
         self.display.setText(summarize_paths(self.selected_paths, "file").replace("\n", " | "))
         self.selectionChanged.emit()
+        # ── Log every newly selected file ─────────────────────────────────────
+        label = getattr(self, "label_text", "MultiFileField")
+        for p in new_files:
+            log_file_upload("file", p, field=label)
+        _log.debug("MultiFileField: %d new file(s) added, %d total",
+                   len(new_files), len(self.selected_paths))
 
     def clear_selection(self):
         self.selected_paths = []
@@ -928,6 +947,8 @@ class TargetFolderInputField(QWidget):
         if folder:
             self.selected_path = normalize_path(folder)
             self.display.setText(self.selected_path)
+            log_file_upload("folder", self.selected_path, field="Target Folder")
+            _log.debug("TargetFolderInputField: selected %s", self.selected_path)
 
     def clear_selection(self):
         self.selected_path = ""
@@ -996,6 +1017,8 @@ class ExcelFileField(QWidget):
             return
         self.selected_path = normalize_path(file_path)
         self.display.setText(self.selected_path)
+        log_file_upload("excel", self.selected_path, field="Excel File")
+        _log.debug("ExcelFileField: selected %s", self.selected_path)
 
     def clear_selection(self):
         self.selected_path = ""

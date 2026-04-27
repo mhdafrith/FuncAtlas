@@ -17,6 +17,9 @@ from core.utils import (
     is_probable_function_name, iter_source_files, detect_functions_in_file,
     extract_excel_column_letters, extract_excel_row_number,
 )
+from core.logger import get_logger, log_function_extraction, log_output_file, log_file_upload
+
+_log = get_logger(__name__)
 
 # ── Column-header scoring ─────────────────────────────────────────────────────
 def score_header_for_function(text):
@@ -82,7 +85,11 @@ def detect_best_column_in_workbook(excel_path, kind):
 # ── Source scanning ───────────────────────────────────────────────────────────
 def scan_source_for_all_functions(root_folder):
     file_entries = list(iter_source_files(root_folder))
-    if not file_entries: return OrderedDict()
+    if not file_entries:
+        _log.info("scan_source_for_all_functions: no source files found in %s", root_folder)
+        return OrderedDict()
+    _log.info("scan_source_for_all_functions: scanning %d files in %s",
+              len(file_entries), root_folder)
     max_workers = min(8, max(2, (os.cpu_count() or 4)))
 
     def _scan_one(entry):
@@ -105,16 +112,24 @@ def scan_source_for_all_functions(root_folder):
                 try:
                     full_path, info = future.result(timeout=FILE_TIMEOUT)
                     results[full_path] = info
+                    log_function_extraction(full_path, info["functions"])
                 except Exception:
                     # Timed out or errored — skip this file and continue
                     results[fp] = {"display_name": os.path.basename(fp), "functions": []}
+                    _log.warning("scan_source: skipped (timeout/error) %s", os.path.basename(fp))
     else:
         for entry in file_entries:
             try:
                 full_path, info = _scan_one(entry)
                 results[full_path] = info
+                log_function_extraction(full_path, info["functions"])
             except Exception:
                 results[entry[0]] = {"display_name": entry[1], "functions": []}
+                _log.warning("scan_source: error scanning %s", entry[1])
+
+    total_fns = sum(len(v["functions"]) for v in results.values())
+    _log.info("scan_source_for_all_functions: done — %d files, %d functions total",
+              len(results), total_fns)
 
     ordered = OrderedDict()
     for full_path, _ in sorted(file_entries, key=lambda x: x[0].lower()):
@@ -171,6 +186,7 @@ def _extract_fn_name(raw):
 def parse_function_list_file(path):
     names = []
     ext = os.path.splitext(path)[1].lower()
+    _log.debug("parse_function_list_file: reading %s (ext=%s)", os.path.basename(path), ext)
     try:
         if ext == ".txt":
             with open(path,"r",encoding="utf-8",errors="ignore") as f:
@@ -191,6 +207,8 @@ def parse_function_list_file(path):
     for name in names:
         key = normalize_name(name)
         if key and key not in seen: seen.add(key); out.append(clean_text(name))
+    _log.info("parse_function_list_file: %s → %d unique function names",
+              os.path.basename(path), len(out))
     return out
 
 def parse_function_list_files(file_paths):
@@ -435,6 +453,9 @@ def extract_functions_from_folder_to_excel(root_folder: str) -> str:
     """
     import tempfile
 
+    _log.info("extract_functions_from_folder_to_excel: scanning folder %s", root_folder)
+    log_file_upload("folder", root_folder, field="Folder Extraction Source")
+
     records = []
     scan_result = scan_source_for_all_functions(root_folder)
     for full_path, info in scan_result.items():
@@ -442,6 +463,9 @@ def extract_functions_from_folder_to_excel(root_folder: str) -> str:
         file_name = info["display_name"]
         for fn in info["functions"]:
             records.append((rel_path, file_name, fn))
+
+    _log.info("extract_functions_from_folder_to_excel: %d function records from %d files",
+              len(records), len(scan_result))
 
     wb = Workbook()
     ws = wb.active
@@ -471,6 +495,9 @@ def extract_functions_from_folder_to_excel(root_folder: str) -> str:
     tmp_dir = tempfile.gettempdir()
     out_path = os.path.join(tmp_dir, "funcatlas_extracted_functions.xlsx")
     wb.save(out_path)
+    log_output_file(out_path, kind="Extracted Functions Excel (temp)")
+    _log.info("extract_functions_from_folder_to_excel: saved %d records → %s",
+              len(records), out_path)
     return out_path, len(records)
 
 
@@ -569,8 +596,10 @@ class BuiltinExtractionWorker(QObject):
         try:
             if not self.bases: self.error.emit('No bases provided.'); return
             os.makedirs(self.output_root, exist_ok=True)
-            root_out = os.path.join(self.output_root,'FuncAtlas_Extracted')
+            import tempfile as _tempfile
+            root_out = os.path.join(_tempfile.gettempdir(), 'FuncAtlas_Extracted')
             os.makedirs(root_out, exist_ok=True)
+            self.log.emit(f'Extracted .txt files → {root_out}')
             all_results = {}
             for base_idx, base in enumerate(self.bases, 1):
                 if self._cancel_requested:

@@ -17,6 +17,9 @@ from core.utils import (
     normalize_excel_reference, is_valid_excel_reference,
     extract_excel_column_letters, extract_excel_row_number, excel_col_to_index
 )
+from core.logger import get_logger, log_user_action
+
+_log = get_logger(__name__)
 
 
 class _DetectWorker(QObject):
@@ -130,6 +133,10 @@ class AutoDetectColumnField(QWidget):
             col_no = excel_col_to_index(col)
             self.preview.setText(
                 f"Preview: {value} | Column={col} | Column No={col_no} | Row={row_no}")
+            log_user_action("manual_entry", f"Column ref={value}",
+                            extra=f"kind={self.detect_kind}")
+            _log.debug("AutoDetectColumnField manual_apply: kind=%s ref=%s",
+                       self.detect_kind, value)
         else:
             self.preview.setText("Preview: invalid reference")
 
@@ -137,6 +144,10 @@ class AutoDetectColumnField(QWidget):
         excel_path = self._get_source_excel()
         if not excel_path:
             return
+
+        _log.info("AutoDetect starting: kind=%s  excel=%s", self.detect_kind, excel_path)
+        log_user_action("click", "Auto Detect button",
+                        extra=f"kind={self.detect_kind} | source={excel_path}")
 
         self.button.setEnabled(False)
         self.button.setText("Detecting...")
@@ -167,12 +178,18 @@ class AutoDetectColumnField(QWidget):
         )
         self.button.setText("Auto Detect")
         self.button.setEnabled(True)
+        _log.info("AutoDetect success: kind=%s  sheet=%s  ref=%s  header=%r",
+                  self.detect_kind, result.get("sheet"), result.get("ref"), result.get("header"))
+        log_user_action("auto_detect_success",
+                        f"ref={result.get('ref')} header={result.get('header')!r}",
+                        extra=f"kind={self.detect_kind} | sheet={result.get('sheet')}")
 
     def _on_detect_error(self, msg: str):
         self.preview.setText("Detection failed — enter manually.")
         QMessageBox.critical(self, "Detection Error", msg)
         self.button.setText("Auto Detect")
         self.button.setEnabled(True)
+        _log.warning("AutoDetect FAILED: kind=%s  error=%s", self.detect_kind, msg)
 
     def clear_selection(self):
         self.input.clear()
