@@ -1137,6 +1137,12 @@ def create_complexity_page(win):
         win.complexity_timer_lbl.setVisible(True)
         win.complexity_open_report_btn.setEnabled(True)
         win.complexity_log.append(f"⏱ Total time: {elapsed_str}")
+        # Restructure Excel immediately: move cx/cp summaries into Summary sheet
+        # and remove Construct_Summary sheet so the file is always in final state
+        try:
+            win._restructure_excel_sheets(path)
+        except Exception:
+            pass
         QMessageBox.information(
             win, "Success",
             f"Compatibility sheet appended successfully.\n\nUpdated report:\n{path}\n\n⏱ Time: {elapsed_str}"

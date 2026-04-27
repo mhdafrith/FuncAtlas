@@ -2450,13 +2450,31 @@ class ReuseAnalysisWindow(QMainWindow):
         """
         Read all four sheets of FuncAtlas_Report.xlsx and produce a
         styled standalone HTML report.
+        The original Excel file is never modified — restructuring is done
+        on a temporary copy that is deleted after use.
         """
         import openpyxl
+        import tempfile
+        import shutil
 
-        # Restructure Excel: move cx/cp from Construct_Summary → Summary, delete Construct_Summary
-        self._restructure_excel_sheets(excel_path)
-
-        wb = openpyxl.load_workbook(excel_path, data_only=True)
+        # Excel is already restructured after Generate Report.
+        # For the report-page HTML flow (which doesn't go through Generate Report),
+        # restructure on a temp copy so the original is never modified.
+        import tempfile, shutil as _shutil
+        if "Construct_Summary" in openpyxl.load_workbook(excel_path, read_only=True).sheetnames:
+            tmp_fd, tmp_path = tempfile.mkstemp(suffix=".xlsx")
+            os.close(tmp_fd)
+            _shutil.copy2(excel_path, tmp_path)
+            try:
+                self._restructure_excel_sheets(tmp_path)
+                wb = openpyxl.load_workbook(tmp_path, data_only=True)
+            finally:
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+        else:
+            wb = openpyxl.load_workbook(excel_path, data_only=True)
 
         # ── Sheet: Summary (contains key-value rows + complexity level + compat distribution) ──
         cx_summary  = {}   # level -> (count, pct)
