@@ -273,11 +273,11 @@ class ReuseAnalysisWindow(QMainWindow):
             QLabel#fieldLabel {{ color: {t['text_secondary']}; font-weight: 800; font-size: {self.base_font_size}px; }}
             QLabel#panelTitle {{ color: {t['text_primary']}; font-weight: 900; font-size: {self.base_font_size+1}px; }}
             QLabel#panelSubtitle {{ color: {t['text_muted']}; font-size: {self.base_font_size-1}px; }}
-            QLabel#helpStepTitle {{ color: {accent}; font-size: 15px; font-weight: 900; }}
+            QLabel#helpStepTitle {{ color: #000000; font-size: 15px; font-weight: 900; }}
             QLabel#cardTitle {{ color: {t['text_primary']}; font-weight: 900; font-size: {self.base_font_size+1}px; }}
             QLabel#cardSubtitle {{ color: {t['text_secondary']}; font-size: {self.base_font_size-1}px; }}
             QLabel#heroTitle {{ color: {t['text_primary']}; font-size: {self.base_font_size+18}px; font-weight: 900; }}
-            QLabel#heroKicker {{ color: {accent if luminance <= 0.55 else QColor(accent).darker(160).name()}; font-size: {self.base_font_size-1}px; font-weight: 900; letter-spacing: 2px; }}
+            QLabel#heroKicker {{ color: #000000; font-size: {self.base_font_size-1}px; font-weight: 900; letter-spacing: 2px; }}
             QLabel#heroSubtitle {{ color: {t['text_secondary']}; font-size: {self.base_font_size+1}px; }}
             QLabel#heroBadge {{
                 background: {accent}; color: {btn_text};

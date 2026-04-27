@@ -113,7 +113,10 @@ class ComplexitySettingsDialog(QDialog):
 
     def __init__(self, parent, weights=None, bands=None, handled_scenarios=None):
         super().__init__(parent)
-        self.setWindowTitle("Complexity & Compatibility Settings")
+        if weights is not None or bands is not None:
+            self.setWindowTitle("Complexity Settings")
+        else:
+            self.setWindowTitle("Compatibility Settings")
         self.setModal(True)
         self.setMinimumSize(1000, 580)
 
@@ -658,6 +661,9 @@ class ComplexitySettingsDialog(QDialog):
             sc for sc, badge in self._status_btns.items() if badge.property("handled")
         }
         _save_handled_scenarios(self._handled)
+        # Notify parent window immediately so it reflects the new state
+        if hasattr(self, "_on_handled_saved") and callable(self._on_handled_saved):
+            self._on_handled_saved(self._handled)
         QMessageBox.information(self, "Saved", "Handled scenarios saved successfully.")
         self._edit_mode = False
         self._set_edit_enabled(False)
@@ -1073,9 +1079,14 @@ def create_complexity_page(win):
     def open_compatibility_settings():
         dlg = ComplexitySettingsDialog(win, weights=None, bands=None,
                                        handled_scenarios=win._handled_scenarios)
-        if dlg.exec():
-            win._handled_scenarios = dlg.get_handled_scenarios()
-            _save_handled_scenarios(win._handled_scenarios)
+
+        def _on_handled_saved(new_handled):
+            win._handled_scenarios = new_handled
+
+        dlg._on_handled_saved = _on_handled_saved
+        dlg.exec()
+        # Also sync after dialog closes in case user saved then closed
+        win._handled_scenarios = dlg.get_handled_scenarios()
 
     def _set_running_ui(running: bool, keep_timer: bool = False):
         win.complexity_generate_btn.setEnabled(not running)
