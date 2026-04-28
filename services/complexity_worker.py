@@ -102,6 +102,49 @@ CONSTRUCTS = [
 ]
 
 
+# ── Default weights & bands (single source of truth) ─────────────────────────
+DEFAULT_WEIGHTS = {
+    "If Statement":           1, "Else Branch":            1,
+    "Else-if Chain":          2, "Switch Statement":       2,
+    "Case Label":             1, "Default Label":          1,
+    "Break Statement":        1, "For Loop":               2,
+    "Return Statement":       1, "Continue Statement":     1,
+    "While Loop":             2, "Do...While":             2,
+    "Function Call":          4, "Function Definition":    3,
+    "Function Declaration":   2, "Address-of Operator":    3,
+    "Pointer Declaration":    4, "Pointer Dereference":    4,
+    "Arrow Operator":         3, "Void Pointer":           5,
+    "Pointer Arithmetic":     5, "Array Access":           2,
+    "Array Declaration":      2, "String Literal":         1,
+    "Char Array":             2, "Cast Operation":         3,
+    "Typedef":                2, "Enum Definition":        2,
+    "Sizeof Operator":        2, "Const Declaration":      1,
+    "Signed/Unsigned":        1, "Short/Long":             1,
+    "Static Keyword":         2, "Compound Assignment":    1,
+    "Increment":              1, "Decrement":              1,
+    "Bitwise AND":            2, "Bitwise OR":             2,
+    "Bitwise XOR":            2, "Bitwise NOT":            2,
+    "Left Shift":             2, "Right Shift":            2,
+    "Logical AND":            1, "Logical OR":             1,
+    "Logical NOT":            1, "Designated Initializer": 2,
+    "Compound Literal":       2, "Bit Field":              3,
+    "Macro Definition":       2, "Ifdef Directive":        1,
+    "If Directive":           1, "Elif Directive":         1,
+    "Else Directive":         1, "Endif Directive":        1,
+    "Pragma Directive":       1, "NULL Check":             3,
+    "NULL Assignment":        2, "memset":                 3,
+    "memcpy":                 3, "fabs":                   2,
+}
+
+DEFAULT_BANDS = [
+    ("Low",       0,   5),
+    ("Medium",    6,  12),
+    ("High",      13,  25),
+    ("Very High", 26,  40),
+    ("Complex",   41, 999),
+]
+
+
 def _strip_comments(text: str) -> str:
     text = re.sub(r'/\*.*?\*/', ' ', text, flags=re.DOTALL)
     text = re.sub(r'//[^\n]*', ' ', text)
@@ -146,15 +189,8 @@ class ComplexityAnalysisWorker(QObject):
         super().__init__()
         self.source_folder = normalize_path(source_folder)
         self.output_root   = normalize_path(output_root)
-        self.weights       = {n: w for n, w in (weights or [])} or \
-                             {n: 1 for n, _ in CONSTRUCTS}
-        self.bands         = bands or [
-            ("Low",       0,   5),
-            ("Medium",    6,  12),
-            ("High",     13,  25),
-            ("Very High", 26,  40),
-            ("Complex",  41, 999),
-        ]
+        self.weights       = {n: w for n, w in (weights or [])} or DEFAULT_WEIGHTS
+        self.bands         = bands or DEFAULT_BANDS
 
     # ── main entry ────────────────────────────────────────────────────────────
     def run(self):
@@ -492,15 +528,8 @@ class ComplexityAppendWorker(QObject):
         super().__init__()
         self.report_path   = report_path
         self.source_folder = normalize_path(source_folder)
-        self.weights       = {n: w for n, w in (weights or [])} or \
-                             {n: 1 for n, _ in CONSTRUCTS}
-        self.bands         = bands or [
-            ("Low",       0,   5),
-            ("Medium",    6,  12),
-            ("High",     13,  25),
-            ("Very High", 26,  40),
-            ("Complex",  41, 999),
-        ]
+        self.weights       = {n: w for n, w in (weights or [])} or DEFAULT_WEIGHTS
+        self.bands         = bands or DEFAULT_BANDS
         self.handled_scenarios = set(handled_scenarios) if handled_scenarios else set()
         self._cancel_requested = False
 

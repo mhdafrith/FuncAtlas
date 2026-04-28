@@ -12,7 +12,7 @@ from PySide6.QtWidgets import (
     QTextEdit, QProgressBar, QSizePolicy
 )
 from ui.widgets import SectionTitle, IconTextButton
-from services.complexity_worker import ComplexityAppendWorker
+from services.complexity_worker import ComplexityAppendWorker, DEFAULT_WEIGHTS, DEFAULT_BANDS
 
 # ── JSON persistence ──────────────────────────────────────────────────────────
 _SETTINGS_DIR = os.path.join(os.path.expanduser("~"), ".funcatlas")
@@ -67,46 +67,9 @@ def _save_handled_scenarios(handled):
 
 # ── Combined Complexity + Compatibility Settings Dialog ───────────────────────
 class ComplexitySettingsDialog(QDialog):
-    DEFAULT_WEIGHTS = [
-        ("If Statement",           1), ("Else Branch",            1),
-        ("Else-if Chain",          2), ("Switch Statement",       2),
-        ("Case Label",             1), ("Default Label",          1),
-        ("Break Statement",        1), ("For Loop",               2),
-        ("Return Statement",       1), ("Continue Statement",     1),
-        ("While Loop",             2), ("Do...While",             2),
-        ("Function Call",          4), ("Function Definition",    3),
-        ("Function Declaration",   2), ("Address-of Operator",    3),
-        ("Pointer Declaration",    4), ("Pointer Dereference",    4),
-        ("Arrow Operator",         3), ("Void Pointer",           5),
-        ("Pointer Arithmetic",     5), ("Array Access",           2),
-        ("Array Declaration",      2), ("String Literal",         1),
-        ("Char Array",             2), ("Cast Operation",         3),
-        ("Typedef",                2), ("Enum Definition",        2),
-        ("Sizeof Operator",        2), ("Const Declaration",      1),
-        ("Signed/Unsigned",        1), ("Short/Long",             1),
-        ("Static Keyword",         2), ("Compound Assignment",    1),
-        ("Increment",              1), ("Decrement",              1),
-        ("Bitwise AND",            2), ("Bitwise OR",             2),
-        ("Bitwise XOR",            2), ("Bitwise NOT",            2),
-        ("Left Shift",             2), ("Right Shift",            2),
-        ("Logical AND",            1), ("Logical OR",             1),
-        ("Logical NOT",            1), ("Designated Initializer", 2),
-        ("Compound Literal",       2), ("Bit Field",              3),
-        ("Macro Definition",       2), ("Ifdef Directive",        1),
-        ("If Directive",           1), ("Elif Directive",         1),
-        ("Else Directive",         1), ("Endif Directive",        1),
-        ("Pragma Directive",       1), ("NULL Check",             3),
-        ("NULL Assignment",        2), ("memset",                 3),
-        ("memcpy",                 3), ("fabs",                   2),
-    ]
-
-    DEFAULT_BANDS = [
-        ("Low",       0,   5),
-        ("Medium",    6,  12),
-        ("High",     13,  25),
-        ("Very High", 26,  40),
-        ("Complex",  41, 999),
-    ]
+    # Single source of truth lives in services/complexity_worker.py
+    DEFAULT_WEIGHTS = list(DEFAULT_WEIGHTS.items())
+    DEFAULT_BANDS   = DEFAULT_BANDS
 
     # Colour palette for the 5 bands (Low → Complex)
     BAND_COLORS = ["#27AE60", "#2980B9", "#F39C12", "#E67E22", "#C0392B"]

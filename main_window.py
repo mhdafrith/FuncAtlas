@@ -2022,6 +2022,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self._report_bases_list  = bases
         self._report_total_steps = len(bases) + 1
         self._report_done_steps  = 0
+        self._report_total_funcs_extracted = 0
         self._update_report_step_chip()
         self._report_target_label = target_entry["label"]
         self._report_ref_labels   = [r["label"] for r in ref_entries]
@@ -2091,6 +2092,8 @@ class ReuseAnalysisWindow(QMainWindow):
     def _on_step_extracted(self, label: str, func_count: int):
         from ui.widgets import StepStatusWidget
         self._report_done_steps = getattr(self, "_report_done_steps", 0) + 1
+        # Accumulate total extracted functions for the success popup
+        self._report_total_funcs_extracted = getattr(self, "_report_total_funcs_extracted", 0) + func_count
         self.report_step_widget.set_state(label, StepStatusWidget.STATE_DONE,
                                           f"{func_count} functions extracted")
         overall = self._cumulative_progress(100)
@@ -2967,82 +2970,50 @@ class ReuseAnalysisWindow(QMainWindow):
             self.report_status_label.setText(f"Done — {elapsed_str}")
         if hasattr(self, "report_timer_lbl"):
             self.report_timer_lbl.setText(f"⏱ {elapsed_str}")
-        self._show_report_log_dialog(out_file, elapsed_str)
+        self._show_report_success_popup(out_file, elapsed_str)
 
 
-    def _show_report_log_dialog(self, out_file: str, elapsed_str: str):
-        """Show a Report Log dialog matching the detailed log window (image 2)."""
-        from PySide6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout,
-                                        QLabel, QPushButton, QTextEdit, QFrame)
-        from PySide6.QtGui import QIcon, QFont
+    def _show_report_success_popup(self, out_file: str, elapsed_str: str):
+        """Show a compact success dialog after report generation."""
+        from PySide6.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
         from PySide6.QtCore import Qt
-        import os
 
         dlg = QDialog(self)
-        dlg.setWindowTitle("Report Log")
-        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.png")
-        if os.path.isfile(_icon_path):
-            dlg.setWindowIcon(QIcon(_icon_path))
-        dlg.resize(780, 520)
-        dlg.setMinimumSize(600, 400)
+        dlg.setWindowTitle("Success")
+        dlg.setFixedWidth(420)
 
-        layout = QVBoxLayout(dlg)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(12)
+        outer = QVBoxLayout(dlg)
+        outer.setContentsMargins(18, 16, 18, 14)
+        outer.setSpacing(10)
 
-        # ── Header row ───────────────────────────────────────────────────────
-        hdr_row = QHBoxLayout()
-        hdr_lbl = QLabel("Report Log File")
-        hdr_lbl.setStyleSheet("font-size: 14px; font-weight: 700;")
-        close_btn = QPushButton("×")
-        close_btn.setFixedSize(32, 32)
-        close_btn.setStyleSheet(
-            "QPushButton { border: 1px solid #ccc; border-radius: 6px; font-size: 16px; "
-            "background: transparent; } QPushButton:hover { background: #eee; }"
+        top = QHBoxLayout()
+        top.setSpacing(12)
+        icon_lbl = QLabel("ℹ")
+        icon_lbl.setFixedSize(38, 38)
+        icon_lbl.setAlignment(Qt.AlignCenter)
+        icon_lbl.setStyleSheet(
+            "background:#0078D4; color:white; border-radius:19px; font-size:20px; font-weight:700;"
         )
-        close_btn.clicked.connect(dlg.accept)
-        hdr_row.addWidget(hdr_lbl, 1)
-        hdr_row.addWidget(close_btn)
-        layout.addLayout(hdr_row)
+        msg_lbl = QLabel("Report generated successfully.")
+        msg_lbl.setWordWrap(True)
+        msg_lbl.setStyleSheet("font-size:13px;")
+        top.addWidget(icon_lbl, 0, Qt.AlignTop)
+        top.addWidget(msg_lbl, 1)
+        outer.addLayout(top)
 
-        # ── Log text box ─────────────────────────────────────────────────────
-        log_box = QTextEdit()
-        log_box.setReadOnly(True)
-        log_box.setFont(QFont("Consolas", 10))
-        log_box.setFrameShape(QFrame.Box)
-        log_box.setStyleSheet(
-            "QTextEdit { border: 1px solid #ddd; border-radius: 8px; "
-            "padding: 10px; background: #fff; color: #1a1a1a; }"
-        )
+        detail_lbl = QLabel(f"Updated report:\n{out_file}\n\n⏱ Time: {elapsed_str}")
+        detail_lbl.setWordWrap(True)
+        detail_lbl.setStyleSheet("font-size:12px; color:#444; margin-left:50px;")
+        outer.addWidget(detail_lbl)
 
-        # Populate with full log from the in-app log box
-        full_log = self.report_log_box.toPlainText().strip()
-        if full_log:
-            log_box.setPlainText(full_log)
-        else:
-            log_box.setPlainText(
-                f"Report generated successfully.\n"
-                f"Output file: {out_file}\n"
-                f"Total time: {elapsed_str}"
-            )
-
-        # Scroll to bottom
-        sb = log_box.verticalScrollBar()
-        sb.setValue(sb.maximum())
-        layout.addWidget(log_box, 1)
-
-        # ── Bottom OK button ─────────────────────────────────────────────────
         btn_row = QHBoxLayout()
-        ok_btn = QPushButton("OK")
-        ok_btn.setFixedSize(90, 34)
-        ok_btn.setStyleSheet(
-            "QPushButton { background: #3BA8FF; color: white; border-radius: 8px; "
-            "font-weight: 700; } QPushButton:hover { background: #2E8FE0; }"
-        )
-        ok_btn.clicked.connect(dlg.accept)
         btn_row.addStretch()
+        ok_btn = QPushButton("OK")
+        ok_btn.setFixedSize(80, 28)
+        ok_btn.setDefault(True)
+        ok_btn.clicked.connect(dlg.accept)
         btn_row.addWidget(ok_btn)
-        layout.addLayout(btn_row)
+        outer.addLayout(btn_row)
 
         dlg.exec()
 
