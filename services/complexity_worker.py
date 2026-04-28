@@ -41,8 +41,8 @@ CONSTRUCTS = [
     ("While Loop",          r'\bwhile\s*\('),
     ("Do...While",          r'\bdo\s*\{'),
     # ── Function ──────────────────────────────────────────────────────────────
-    ("Function Call",       r'\b[A-Za-z_]\w*\s*\('),
-    ("Function Definition", r'\b[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\([^)]*\)\s*\{'),
+    ("Function Call",       r'\b(?!if\b|for\b|while\b|switch\b)[A-Za-z_]\w*\s*\([^)]*\)\s*;'),
+    ("Function Definition", r'\b(?:void|int|float|double|char|long|short|bool)\s+[A-Za-z_]\w*\s*\([^)]*\)\s*\{'),
     ("Function Declaration",r'\b[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\([^)]*\)\s*;'),
     # ── Pointer ───────────────────────────────────────────────────────────────
     ("Address-of Operator", r'&[A-Za-z_]\w*'),
