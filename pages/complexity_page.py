@@ -1095,6 +1095,7 @@ def create_complexity_page(win):
         m, s    = divmod(elapsed, 60)
         elapsed_str = f"{m}m {s:02d}s" if m else f"{s}s"
         _set_running_ui(False, keep_timer=True)
+        win._unlock_nav()
         win.complexity_progress_bar.setValue(100)
         win.complexity_status_lbl.setText(f"Done — {elapsed_str}")
         win.complexity_timer_lbl.setText(f"⏱ {elapsed_str}")
@@ -1117,6 +1118,7 @@ def create_complexity_page(win):
     def _on_generate_error(message: str):
         if message == '__CANCELLED__':
             _set_running_ui(False, keep_timer=False)
+            win._unlock_nav()
             win.complexity_status_lbl.setText("Cancelled")
             win.complexity_timer_lbl.setVisible(False)
             win.complexity_log.append("⛔ Generation cancelled by user.")
@@ -1124,6 +1126,7 @@ def create_complexity_page(win):
             win._cx_worker = None
             return
         _set_running_ui(False, keep_timer=False)
+        win._unlock_nav()
         win.complexity_timer_lbl.setVisible(False)
         QMessageBox.critical(win, "Error", message)
         win._cx_thread = None
@@ -1161,6 +1164,7 @@ def create_complexity_page(win):
         bands   = win._complexity_bands   or None
 
         _set_running_ui(True)
+        win._lock_nav()
         win.complexity_progress_bar.setValue(0)
         win.complexity_status_lbl.setText("Starting …")
         win.complexity_log.clear()

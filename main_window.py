@@ -102,7 +102,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.setMinimumSize(1240, 740)
 
         # -- Window icon --
-        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.png")
+        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico")
         if os.path.isfile(_icon_path):
             self.setWindowIcon(QIcon(_icon_path))
             self._log.debug("Window icon set from %s", _icon_path)
@@ -284,11 +284,11 @@ class ReuseAnalysisWindow(QMainWindow):
             QLabel#fieldLabel {{ color: {t['text_secondary']}; font-weight: 800; font-size: {self.base_font_size}px; }}
             QLabel#panelTitle {{ color: {t['text_primary']}; font-weight: 900; font-size: {self.base_font_size+1}px; }}
             QLabel#panelSubtitle {{ color: {t['text_muted']}; font-size: {self.base_font_size-1}px; }}
-            QLabel#helpStepTitle {{ color: #000000; font-size: 15px; font-weight: 900; }}
+            QLabel#helpStepTitle {{ color: {t['text_primary']}; font-size: 15px; font-weight: 900; }}
             QLabel#cardTitle {{ color: {t['text_primary']}; font-weight: 900; font-size: {self.base_font_size+1}px; }}
             QLabel#cardSubtitle {{ color: {t['text_secondary']}; font-size: {self.base_font_size-1}px; }}
             QLabel#heroTitle {{ color: {t['text_primary']}; font-size: {self.base_font_size+18}px; font-weight: 900; }}
-            QLabel#heroKicker {{ color: #000000; font-size: {self.base_font_size-1}px; font-weight: 900; letter-spacing: 2px; }}
+            QLabel#heroKicker {{ color: {t['text_primary']}; font-size: {self.base_font_size-1}px; font-weight: 900; letter-spacing: 2px; }}
             QLabel#heroSubtitle {{ color: {t['text_secondary']}; font-size: {self.base_font_size+1}px; }}
             QLabel#heroBadge {{
                 background: {accent}; color: {btn_text};
@@ -828,7 +828,7 @@ class ReuseAnalysisWindow(QMainWindow):
         brand_layout.setSpacing(10)
 
         # ── Logo icon ────────────────────────────────────────────────────────
-        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.png")
+        _icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico")
         brand_logo_lbl = QLabel()
         brand_logo_lbl.setFixedSize(38, 38)
         brand_logo_lbl.setStyleSheet("background: transparent;")
@@ -1033,6 +1033,17 @@ class ReuseAnalysisWindow(QMainWindow):
         """Hide the global loading overlay."""
         self._global_spinner_timer.stop()
         self._global_overlay.setVisible(False)
+
+    # ── nav lock helpers (called while any worker is running) ─────────────────
+    def _lock_nav(self):
+        """Disable all sidebar nav buttons while a background job is running."""
+        for btn in self.nav_buttons.values():
+            btn.setEnabled(False)
+
+    def _unlock_nav(self):
+        """Re-enable all sidebar nav buttons after a background job finishes."""
+        for btn in self.nav_buttons.values():
+            btn.setEnabled(True)
 
     # ── page navigation ───────────────────────────────────────────────────────
     def make_scroll_page(self, content_widget: QWidget) -> QScrollArea:
@@ -1892,6 +1903,7 @@ class ReuseAnalysisWindow(QMainWindow):
 
         self.con_submit_btn.setEnabled(False)
         self.con_submit_btn.setText("Submitting...")
+        self._lock_nav()
         from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
         self.con_output_link_field.clear_selection()
@@ -1918,6 +1930,7 @@ class ReuseAnalysisWindow(QMainWindow):
     def on_consolidated_finished(self, result: dict):
         self.con_submit_btn.setEnabled(True)
         self.con_submit_btn.setText("Submit")
+        self._unlock_nav()
         self.con_output_link_field.set_output(result["output_file"])
         log_output_file(result["output_file"], kind="Consolidated Output Excel")
         _log.info("consolidated finished: fn_list_files=%d, functions_read=%d, matched=%d, unmatched=%d",
@@ -1935,6 +1948,7 @@ class ReuseAnalysisWindow(QMainWindow):
     def on_consolidated_error(self, message: str):
         self.con_submit_btn.setEnabled(True)
         self.con_submit_btn.setText("Submit")
+        self._unlock_nav()
         _log.error("consolidated error: %s", message)
         QMessageBox.critical(self, "Processing Error", message)
         self.con_worker = None; self.con_thread = None
@@ -2033,6 +2047,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.report_phase_label.setText("Extracting — waiting to start")
         self.report_generate_btn.setEnabled(False)
         self.report_generate_btn.setText("Running …")
+        self._lock_nav()
         # ── Start elapsed timer ───────────────────────────────────────────
         self._report_start_time = time.time()
         if not hasattr(self, "_report_timer"):
@@ -2186,6 +2201,7 @@ class ReuseAnalysisWindow(QMainWindow):
         self.report_phase_label.setText("Extracting — waiting to start")
         self.report_generate_html_btn.setEnabled(False)
         self.report_generate_html_btn.setText("Running …")
+        self._lock_nav()
         self.report_cancel_btn.setVisible(True)
         self.report_cancel_btn.setEnabled(True)
         self.report_cancel_btn.setText("Cancel")
@@ -2285,6 +2301,7 @@ class ReuseAnalysisWindow(QMainWindow):
 
     def _on_compare_done_html(self, out_excel: str):
         """Convert the generated Excel to HTML — ask user where to save."""
+        self._unlock_nav()
         from ui.widgets import StepStatusWidget
         log_output_file(out_excel, kind="Excel (pre-HTML conversion)")
         _ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -2322,6 +2339,7 @@ class ReuseAnalysisWindow(QMainWindow):
             self.report_summary_chips["phase"].set_value("Completed")
             self.report_summary_chips["result"].set_value("HTML ready")
         self._report_append_log(f"✓ HTML Report: {html_path}")
+        self._unlock_nav()
 
 
     def _on_complexity_generate_html(self):
@@ -2919,6 +2937,7 @@ class ReuseAnalysisWindow(QMainWindow):
         return html_path
 
     def _on_report_error_html(self, msg: str):
+        self._unlock_nav()
         if msg == '__CANCELLED__':
             self._report_append_log("⛔ Generation cancelled by user.")
             self.report_phase_label.setText("⛔ Cancelled")
@@ -2928,6 +2947,7 @@ class ReuseAnalysisWindow(QMainWindow):
             if hasattr(self, "report_summary_chips"):
                 self.report_summary_chips["phase"].set_value("Cancelled")
                 self.report_summary_chips["result"].set_value("—")
+            self._unlock_nav()
             return
         self._report_append_log(f"ERROR: {msg}")
         self.report_phase_label.setText("⚠ Error")
@@ -2937,11 +2957,13 @@ class ReuseAnalysisWindow(QMainWindow):
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Error")
             self.report_summary_chips["result"].set_value("Failed")
+        self._unlock_nav()
         QMessageBox.critical(self, "HTML Report Error", msg)
 
     # ── Excel report generation ───────────────────────────────────────────────
     def _on_compare_done(self, out_file: str):
         from ui.widgets import StepStatusWidget
+        self._unlock_nav()
         self._report_output_file = out_file
         self._last_report_excel  = out_file
         log_output_file(out_file, kind="Excel Report")
@@ -3018,6 +3040,7 @@ class ReuseAnalysisWindow(QMainWindow):
         dlg.exec()
 
     def _on_report_error(self, msg: str):
+        self._unlock_nav()
         if hasattr(self, "_report_timer"):
             self._report_timer.stop()
         if msg == '__CANCELLED__':
@@ -3030,6 +3053,7 @@ class ReuseAnalysisWindow(QMainWindow):
             if hasattr(self, "report_summary_chips"):
                 self.report_summary_chips["phase"].set_value("Cancelled")
                 self.report_summary_chips["result"].set_value("—")
+            self._unlock_nav()
             return
         self._report_append_log(f"ERROR: {msg}")
         self.report_phase_label.setText("⚠ Error")
@@ -3040,6 +3064,7 @@ class ReuseAnalysisWindow(QMainWindow):
         if hasattr(self, "report_summary_chips"):
             self.report_summary_chips["phase"].set_value("Error")
             self.report_summary_chips["result"].set_value("Failed")
+        self._unlock_nav()
         QMessageBox.critical(self, "Report Error", msg)
 
     def _on_report_cancel(self):

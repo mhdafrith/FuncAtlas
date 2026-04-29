@@ -27,7 +27,7 @@ def main():
 
     # ── App icon ──────────────────────────────────────────────────────────────
     _base_dir = os.path.dirname(os.path.abspath(__file__))
-    _icon_path = os.path.join(_base_dir, "app_icon.png")
+    _icon_path = os.path.join(_base_dir, "app_icon.ico")
     if os.path.isfile(_icon_path):
         app.setWindowIcon(QIcon(_icon_path))
         log.debug("App icon loaded from %s", _icon_path)

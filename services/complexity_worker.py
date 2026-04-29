@@ -43,7 +43,7 @@ CONSTRUCTS = [
     # ── Function ──────────────────────────────────────────────────────────────
     ("Function Call",       r'\b(?!if\b|for\b|while\b|switch\b)[A-Za-z_]\w*\s*\([^)]*\)\s*;'),
     ("Function Definition", r'\b(?:void|int|float|double|char|long|short|bool)\s+[A-Za-z_]\w*\s*\([^)]*\)\s*\{'),
-    ("Function Declaration",r'\b[A-Za-z_]\w*\s+[A-Za-z_]\w*\s*\([^)]*\)\s*;'),
+    ("Function Declaration",r'\s*(?:int|float|double|char|void)\s*\**\s*\w+\s*\(\s*(?:(?:int|float|double|char|void)\s*\**\s*\w+(?:\s*,\s*(?:int|float|double|char|void)\s*\**\s*\w+)*)?\s*\)\s*;'),
     # ── Pointer ───────────────────────────────────────────────────────────────
     ("Address-of Operator", r'&[A-Za-z_]\w*'),
     ("Pointer Declaration", r'\b[A-Za-z_]\w*\s*\*+\s*[A-Za-z_]\w*'),
