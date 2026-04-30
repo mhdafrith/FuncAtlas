@@ -18,7 +18,7 @@ def create_reference_page(win):
     card_layout.setSpacing(12)
     card_layout.addWidget(SectionTitle(
         "Reference Bases Input",
-        "Target Base and Reference Bases are mandatory. Function List supports *.xlsx only."
+        "Target Base is mandatory. Function List supports *.xlsx only."
     ))
 
     # ── Target Base: single folder — native OS dialog ────────────────────────

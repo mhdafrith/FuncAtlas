@@ -21,13 +21,13 @@ def create_input_page(win):
     accent = win.accent_color.name()
 
     win.input_reference_card = win.register_accent_card(PremiumCard(
-        "Reference Bases Mode",
+        "Reference Bases",
         "Use this when you have one target base folder and optional reference base folders.",
         win.icons_white.icon("folder", 34), accent,
         "Go to Reference Form", lambda: win.show_page("reference")
     ))
     win.input_consolidated_card = win.register_accent_card(PremiumCard(
-        "Consolidated DB Mode",
+        "Consolidated DB",
         "Use this when your source comes from one consolidated database Excel workflow.",
         win.icons_white.icon("database", 34), accent,
         "Go to Consolidated Form", lambda: win.show_page("consolidated")

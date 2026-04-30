@@ -14,13 +14,13 @@ import sys
 from collections import OrderedDict
 
 from PySide6.QtCore import Qt, QSize, QTimer, QPropertyAnimation, QEasingCurve, QThread
-from PySide6.QtGui import QColor, QFont, QPixmap, QDesktopServices, QIcon
+from PySide6.QtGui import QColor, QFont, QPixmap, QDesktopServices, QIcon, QPainter, QBrush, QPalette
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QFrame, QLabel, QPushButton,
     QVBoxLayout, QHBoxLayout, QStackedWidget, QScrollArea, QSizePolicy,
     QGraphicsOpacityEffect, QColorDialog, QFontDialog, QMessageBox,
     QTreeWidgetItem, QTableWidget, QTableWidgetItem, QHeaderView, QMenu,
-    QDialog, QTextEdit, QFileDialog
+    QDialog, QTextEdit, QFileDialog, QStyledItemDelegate, QStyleOptionViewItem
 )
 
 from core.theme import ThemeManager, VectorIconFactory
@@ -413,6 +413,33 @@ class ReuseAnalysisWindow(QMainWindow):
                 border: 1px solid {t['border']}; border-radius: 10px;
             }}
             QTreeWidget::item:selected {{ background: {accent}55; color: {t['text_primary']}; }}
+            QTableWidget {{
+                background: {t['bg_card']}; color: {t['text_primary']};
+                border: 1px solid {t['border']}; border-radius: 8px;
+                gridline-color: {t['border']};
+            }}
+            QHeaderView::section {{
+                background: {t['bg_soft']}; color: {t['text_primary']};
+                border: 1px solid {t['border']}; padding: 4px 8px;
+                font-weight: 700;
+            }}
+            QTabWidget::pane {{
+                border: 1px solid {t['border']}; border-radius: 8px;
+                background: {t['bg_card']};
+            }}
+            QTabBar::tab {{
+                background: {t['bg_soft']}; color: {t['text_secondary']};
+                border: 1px solid {t['border']}; border-bottom: none;
+                border-top-left-radius: 8px; border-top-right-radius: 8px;
+                padding: 6px 14px; font-weight: 700; min-width: 120px;
+            }}
+            QTabBar::tab:selected {{
+                background: {t['bg_card']}; color: {t['text_primary']};
+                border-bottom: 2px solid {accent};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background: {t['bg_input']}; color: {t['text_primary']};
+            }}
             QScrollBar:vertical {{ background: transparent; width: 10px; margin: 2px; }}
             QScrollBar::handle:vertical {{ background: {t['border_strong']}; min-height: 28px; border-radius: 5px; }}
             QScrollBar::handle:vertical:hover {{ background: {accent}; }}
@@ -544,6 +571,15 @@ class ReuseAnalysisWindow(QMainWindow):
         self._update_progress_btn_colors()
         self._update_color_btn_swatch()
         self._update_help_badges()
+        # Refresh palette + header on all live diff tables so they reflect new theme
+        for tbl in getattr(self, "_diff_tables", []):
+            try:
+                if hasattr(tbl, "_apply_palette"):
+                    tbl._apply_palette(tbl, self.theme)
+                    tbl.viewport().update()
+                    tbl.update()
+            except RuntimeError:
+                pass  # table was deleted
 
     def toggle_theme(self):
         self.set_theme_mode("light" if self.current_theme == "dark" else "dark")
@@ -845,10 +881,10 @@ class ReuseAnalysisWindow(QMainWindow):
         brand_text_layout.setSpacing(1)
         brand_title    = QLabel("FuncAtlas")
         brand_title.setObjectName("brandTitle")
-        brand_subtitle = QLabel("Enterprise Desktop Suite")
-        brand_subtitle.setObjectName("brandSubtitle")
+        # brand_subtitle = QLabel("Enterprise Desktop Suite")
+        # brand_subtitle.setObjectName("brandSubtitle")
         brand_text_layout.addWidget(brand_title)
-        brand_text_layout.addWidget(brand_subtitle)
+        # brand_text_layout.addWidget(brand_subtitle)
         brand_layout.addWidget(brand_text_wrap, 1)
 
         sidebar_layout.addWidget(brand_wrap)
@@ -1501,6 +1537,73 @@ class ReuseAnalysisWindow(QMainWindow):
                             rows_diff.append(("only_ref", "", r))
 
             table.setRowCount(len(rows_diff))
+
+            # Resolve live theme ref
+            t = self.theme
+
+            # Mark equal rows with a sentinel so the delegate knows to use theme colors
+            DIFF_BG  = Qt.BackgroundRole
+            DIFF_FG  = Qt.ForegroundRole
+            IS_EQUAL = Qt.UserRole + 10   # sentinel: True = use live theme colors
+
+            # Delegate reads self.theme live on every paint — works after theme switch
+            win_ref = self
+            class _DiffDelegate(QStyledItemDelegate):
+                def paint(self, painter, option, index):
+                    t_live   = win_ref.theme
+                    is_equal = index.data(IS_EQUAL)
+                    painter.save()
+                    if is_equal:
+                        # Use live theme colors for equal rows
+                        bg = QColor(t_live["bg_soft"] if index.row() % 2 == 1 else t_live["bg_card"])
+                        fg = QColor(t_live["text_primary"])
+                    else:
+                        bg = index.data(DIFF_BG)
+                        fg = index.data(DIFF_FG)
+                        if not bg or not bg.isValid():
+                            bg = QColor(t_live["bg_card"])
+                        if not fg or not fg.isValid():
+                            fg = QColor(t_live["text_primary"])
+                    painter.fillRect(option.rect, QBrush(bg))
+                    painter.setPen(fg)
+                    text = index.data(Qt.DisplayRole) or ""
+                    painter.drawText(option.rect.adjusted(6, 0, -4, 0),
+                                     Qt.AlignLeft | Qt.AlignVCenter, text)
+                    painter.restore()
+
+            delegate = _DiffDelegate(table)
+            table.setItemDelegate(delegate)
+
+            # Apply palette so viewport bg matches theme (no stylesheet on table)
+            def _apply_table_palette(tbl, theme):
+                pal = tbl.palette()
+                pal.setColor(QPalette.Base,          QColor(theme["bg_card"]))
+                pal.setColor(QPalette.AlternateBase, QColor(theme["bg_soft"]))
+                pal.setColor(QPalette.Text,          QColor(theme["text_primary"]))
+                pal.setColor(QPalette.Window,        QColor(theme["bg_card"]))
+                tbl.setPalette(pal)
+                tbl.setAutoFillBackground(True)
+                vpal = tbl.viewport().palette()
+                vpal.setColor(QPalette.Base,          QColor(theme["bg_card"]))
+                vpal.setColor(QPalette.AlternateBase, QColor(theme["bg_soft"]))
+                vpal.setColor(QPalette.Text,          QColor(theme["text_primary"]))
+                tbl.viewport().setPalette(vpal)
+                tbl.viewport().setAutoFillBackground(True)
+                tbl.horizontalHeader().setStyleSheet(
+                    f"QHeaderView::section {{ background: {theme['bg_soft']}; color: {theme['text_primary']};"
+                    f"  border: 1px solid {theme['border']}; font-weight: 700; padding: 4px 8px; }}"
+                )
+                tbl.viewport().update()
+
+            _apply_table_palette(table, t)
+
+            # Register table so set_theme_mode can refresh it on theme switch
+            if not hasattr(self, "_diff_tables"):
+                self._diff_tables = []
+            self._diff_tables = [tbl for tbl in self._diff_tables if tbl.parent() is not None]
+            self._diff_tables.append(table)
+            table._apply_palette = _apply_table_palette
+
             for row_idx, (rtag, nl, rl) in enumerate(rows_diff):
                 ni = QTableWidgetItem(nl)
                 ri = QTableWidgetItem(rl)
@@ -1508,20 +1611,21 @@ class ReuseAnalysisWindow(QMainWindow):
                 ri.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
                 if rtag == "only_target" and nl.strip():
-                    ni.setBackground(QColor("#2E7D32"))
-                    ni.setForeground(QColor("#FFFFFF"))
-                    ri.setBackground(QColor("#2E7D32"))
-                    ri.setForeground(QColor("#FFFFFF"))
+                    for item in (ni, ri):
+                        item.setData(DIFF_BG, QColor("#2E7D32"))
+                        item.setData(DIFF_FG, QColor("#FFFFFF"))
                 elif rtag == "only_ref" and rl.strip():
-                    ni.setBackground(QColor("#F9A825"))
-                    ni.setForeground(QColor("#000000"))
-                    ri.setBackground(QColor("#F9A825"))
-                    ri.setForeground(QColor("#000000"))
+                    for item in (ni, ri):
+                        item.setData(DIFF_BG, QColor("#F9A825"))
+                        item.setData(DIFF_FG, QColor("#000000"))
                 elif rtag == "modified":
-                    ni.setBackground(QColor("#1565C0"))
-                    ni.setForeground(QColor("#FFFFFF"))
-                    ri.setBackground(QColor("#1565C0"))
-                    ri.setForeground(QColor("#FFFFFF"))
+                    for item in (ni, ri):
+                        item.setData(DIFF_BG, QColor("#1565C0"))
+                        item.setData(DIFF_FG, QColor("#FFFFFF"))
+                else:
+                    # equal rows — sentinel so delegate uses live theme colors
+                    for item in (ni, ri):
+                        item.setData(IS_EQUAL, True)
 
                 table.setItem(row_idx, 0, ni)
                 table.setItem(row_idx, 1, ri)
@@ -2304,8 +2408,13 @@ class ReuseAnalysisWindow(QMainWindow):
         self._unlock_nav()
         from ui.widgets import StepStatusWidget
         log_output_file(out_excel, kind="Excel (pre-HTML conversion)")
+        import re as _re
         _ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_name = os.path.splitext(os.path.basename(out_excel))[0] + f"_FuncAtlas_Report_{_ts}.html"
+        # Strip any trailing _FuncAtlas_Report_TIMESTAMP already in the Excel stem
+        # so we never get double "FuncAtlas_Report_..._FuncAtlas_Report_..." names
+        _excel_stem = os.path.splitext(os.path.basename(out_excel))[0]
+        _excel_stem = _re.sub(r"_FuncAtlas_Report_\d{8}_\d{6}$", "", _excel_stem)
+        default_name = f"{_excel_stem}_FuncAtlas_Report_{_ts}.html"
         default_dir  = os.path.dirname(out_excel)
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Save HTML Report As", os.path.join(default_dir, default_name),
@@ -2355,7 +2464,10 @@ class ReuseAnalysisWindow(QMainWindow):
                 "(use Browse Report or Generate Report on this page).")
             return
         _ts = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
-        default_name = os.path.splitext(os.path.basename(path))[0] + f"_FuncAtlas_Report_{_ts}.html"
+        import re as _re
+        _excel_stem = os.path.splitext(os.path.basename(path))[0]
+        _excel_stem = _re.sub(r"_FuncAtlas_Report_\d{8}_\d{6}$", "", _excel_stem)
+        default_name = f"{_excel_stem}_FuncAtlas_Report_{_ts}.html"
         save_path, _ = QFileDialog.getSaveFileName(
             self, "Save HTML Report As",
             os.path.join(os.path.dirname(path), default_name),
@@ -2931,7 +3043,14 @@ class ReuseAnalysisWindow(QMainWindow):
 </body>
 </html>"""
 
-        html_path = save_path if save_path else (os.path.splitext(excel_path)[0] + f"_FuncAtlas_Report_{__import__('datetime').datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
+        if save_path:
+            html_path = save_path
+        else:
+            import re as _re
+            _stem = os.path.splitext(os.path.basename(excel_path))[0]
+            _stem = _re.sub(r"_FuncAtlas_Report_\d{8}_\d{6}$", "", _stem)
+            _ts   = __import__("datetime").datetime.now().strftime("%Y%m%d_%H%M%S")
+            html_path = os.path.join(os.path.dirname(excel_path), f"{_stem}_FuncAtlas_Report_{_ts}.html")
         with open(html_path, "w", encoding="utf-8") as fh:
             fh.write(html)
         return html_path

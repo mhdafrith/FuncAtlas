@@ -35,7 +35,7 @@ def create_home_page(win):
 
     hero_subtitle = QLabel(
         "Explore your function network across source folders, reference "
-        "bases, consolidated DB flows, and report generation in one "
+        "bases, consolidated DB, and report generation in one "
         "premium workspace."
     )
     hero_subtitle.setObjectName("heroSubtitle")
