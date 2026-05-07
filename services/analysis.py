@@ -18,6 +18,7 @@ from core.utils import (
     extract_excel_column_letters, extract_excel_row_number,
 )
 from core.logger import get_logger, log_function_extraction, log_output_file, log_file_upload
+from core.function_cache import FUNCTION_CACHE
 
 _log = get_logger(__name__)
 
@@ -600,18 +601,6 @@ class BuiltinExtractionWorker(QObject):
             root_out = os.path.join(_tempfile.gettempdir(), 'FuncAtlas_Extracted')
             os.makedirs(root_out, exist_ok=True)
             self.log.emit(f'Extracted .txt files → {root_out}')
-
-            # Try to import the disk cache so we can skip re-scanning
-            # when the PreExtractWorker has already done the heavy lifting.
-            try:
-                from services.func_body_cache import is_ready as _cache_is_ready
-                from services.func_body_cache import load_index as _cache_load_index
-                from services.func_body_cache import cache_dir_for as _cache_dir_for
-                import shutil as _shutil
-                _have_cache = True
-            except ImportError:
-                _have_cache = False
-
             all_results = {}
             for base_idx, base in enumerate(self.bases, 1):
                 if self._cancel_requested:
@@ -624,64 +613,23 @@ class BuiltinExtractionWorker(QObject):
                 if not os.path.isdir(src_path):
                     self.error.emit(f'Source folder not found for {label}:\n{src_path}'); return
                 self.base_started.emit(label)
+                self.log.emit(f'[{base_idx}/{len(self.bases)}] Starting: {label}')
 
-                base_out = os.path.join(root_out, self._safe_name(label))
+                # ── Use upfront cache when available (set at Submit time) ────
+                role = 'target' if is_target else 'reference'
+                cached_meta = FUNCTION_CACHE.get_meta(src_path, role)
+                if cached_meta is not None:
+                    records = OrderedDict(cached_meta)
+                    self.log.emit(f'  → Using pre-cached scan for {label}')
+                else:
+                    records = scan_source_for_all_functions(src_path)
+                total_files = max(1, len(records))
+                base_out    = os.path.join(root_out, self._safe_name(label))
                 if os.path.isdir(base_out):
                     for name in os.listdir(base_out):
                         try: os.remove(os.path.join(base_out, name))
                         except: pass
                 os.makedirs(base_out, exist_ok=True)
-
-                # ── Fast path: reuse pre-extracted disk cache ─────────────────
-                if _have_cache and _cache_is_ready(src_path):
-                    pre_dir = _cache_dir_for(src_path)
-                    self.log.emit(f'[{base_idx}/{len(self.bases)}] Using pre-extracted cache for: {label}')
-                    pre_index = _cache_load_index(src_path)
-
-                    # Apply function filter for target base
-                    apply_filter = is_target and bool(self.function_filter)
-                    index_data   = {}
-                    extracted    = 0
-                    total_items  = max(1, len(pre_index))
-
-                    for fi, (index_key, meta) in enumerate(pre_index.items()):
-                        if self._cancel_requested:
-                            self.error.emit('__CANCELLED__')
-                            return
-                        pct = int((fi / total_items) * 100)
-                        self.base_progress.emit(label, pct, f'Copying {fi+1}/{total_items}')
-
-                        fn_name = meta.get('display_name', '')
-                        if apply_filter and normalize_name(fn_name) not in self.function_filter:
-                            continue
-
-                        src_txt = os.path.join(pre_dir, meta.get('txt_name', ''))
-                        if not os.path.isfile(src_txt):
-                            continue
-
-                        dst_txt = os.path.join(base_out, meta['txt_name'])
-                        try:
-                            _shutil.copy2(src_txt, dst_txt)
-                            index_data[index_key] = meta
-                            extracted += 1
-                        except Exception as exc:
-                            self.log.emit(f'  ⚠ copy failed for {meta["txt_name"]}: {exc}')
-
-                    try:
-                        with open(os.path.join(base_out, '_index.json'), 'w', encoding='utf-8') as fh:
-                            _json.dump(index_data, fh, indent=2)
-                    except Exception as exc:
-                        self.log.emit(f'Warning: index write failed: {exc}')
-
-                    self.log.emit(f'[{base_idx}/{len(self.bases)}] Done (cached): {label} -> {extracted} functions')
-                    self.step_done.emit(label, extracted)
-                    all_results[label] = base_out
-                    continue  # skip the slow re-scan below
-
-                # ── Slow path: full scan + extract (no pre-cache available) ───
-                self.log.emit(f'[{base_idx}/{len(self.bases)}] Starting full scan: {label}')
-                records     = scan_source_for_all_functions(src_path)
-                total_files = max(1, len(records))
 
                 # Apply function filter ONLY for the target base when a list was uploaded
                 apply_filter = is_target and bool(self.function_filter)
@@ -713,7 +661,8 @@ class BuiltinExtractionWorker(QObject):
                         # Filter: skip functions NOT in the list (target only)
                         if apply_filter and key not in self.function_filter:
                             continue
-                        body = extract_function_body(file_path, fn)
+                        body = (FUNCTION_CACHE.get_body(src_path, role, file_path, fn)
+                                or extract_function_body(file_path, fn))
                         # .txt filename: encode full filepath + function name so the
                         # filename itself is human-readable and unique per (fn, file).
                         # e.g. a/b.c -> add  =>  a__b.c__add.txt
@@ -737,6 +686,7 @@ class BuiltinExtractionWorker(QObject):
                             extracted += 1
                         except Exception as e:
                             self.log.emit(f'Could not write {txt_name}: {e}')
+
 
                 try:
                     with open(os.path.join(base_out, '_index.json'), 'w', encoding='utf-8') as fh:

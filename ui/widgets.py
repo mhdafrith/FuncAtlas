@@ -196,7 +196,8 @@ class IconTextButton(QPushButton):
 
 # ── ProgressButton ───────────────────────────────────────────────────────────
 class ProgressButton(QPushButton):
-    """A button that shows a left-to-right fill animation while busy."""
+    """A button that shows a left-to-right fill animation while busy,
+    plus a live elapsed-time counter (e.g. 'Scanning … · 27s')."""
     def __init__(self, text: str, icon: QIcon):
         super().__init__(text)
         self.setCursor(Qt.PointingHandCursor)
@@ -208,26 +209,53 @@ class ProgressButton(QPushButton):
         self._progress   = 0          # 0-100
         self._fill_color = QColor("#1565C0")   # fill color (blue)
         self._text_color = QColor("#ffffff")
+
+        # ── fill animation timer (30 ms ticks) ───────────────────────────────
         self._timer      = QTimer(self)
         self._timer.setInterval(30)
         self._timer.timeout.connect(self._tick)
         self._direction  = 1          # 1 = filling, -1 = draining
 
+        # ── elapsed-time timer (1 s ticks) ───────────────────────────────────
+        self._sec_timer   = QTimer(self)
+        self._sec_timer.setInterval(1000)
+        self._sec_timer.timeout.connect(self._sec_tick)
+        self._elapsed_sec = 0         # seconds since start_progress first called
+        self._base_label  = ""        # label without the timer suffix
+
     # ── public API ───────────────────────────────────────────────────────────
     def start_progress(self, label: str = ""):
-        """Start the fill animation and update label."""
+        """Start the fill + timer animations and update label.
+        Safe to call multiple times — elapsed time keeps running across calls."""
         if label:
-            self.setText(label)
+            self._base_label = label
         self._progress  = 0
         self._direction = 1
         self.setEnabled(False)
+
+        # Expand width so the timer text fits
+        self.setMinimumWidth(160)
+
+        # Start fill-animation timer
         self._timer.start()
+
+        # Start elapsed-time timer only on the very first call (don't reset)
+        if not self._sec_timer.isActive():
+            self._elapsed_sec = 0
+            self._sec_timer.start()
+
+        self._update_label()
         self.update()
 
     def stop_progress(self, label: str = ""):
-        """Stop the animation, restore label."""
+        """Stop both animations and restore label."""
         self._timer.stop()
+        self._sec_timer.stop()
+        self._elapsed_sec = 0
         self._progress = 0
+        self._base_label = ""
+        # Restore original fixed width
+        self.setMinimumWidth(150)
         if label:
             self.setText(label)
         self.setEnabled(True)
@@ -235,10 +263,21 @@ class ProgressButton(QPushButton):
 
     # ── internal ─────────────────────────────────────────────────────────────
     def _tick(self):
+        """Fill-bar animation tick."""
         self._progress += self._direction * 2
         if self._progress >= 95:
             # Hold near-full until stop_progress is called
             self._progress = 95
+        self.update()
+
+    def _sec_tick(self):
+        """Elapsed-time tick — fires every second."""
+        self._elapsed_sec += 1
+        self._update_label()
+
+    def _update_label(self):
+        """Show compact 'Running …  Ns' regardless of base label."""
+        self.setText(f"Running …  {self._elapsed_sec}s")
         self.update()
 
     def paintEvent(self, event):

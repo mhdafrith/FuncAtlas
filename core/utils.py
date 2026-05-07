@@ -419,18 +419,6 @@ def detect_functions_in_file(file_path: str) -> list:
 
 # ── Function body extractor ──────────────────────────────────────────────────
 def extract_function_body(file_path: str, function_name: str) -> str:
-    # ── Fast path: check in-memory body cache populated by PreExtractWorker ──
-    # Import lazily to avoid circular imports at module load time.
-    try:
-        from services.func_body_cache import MEMORY_BODY_CACHE, MEMORY_BODY_LOCK
-        mem_key = (os.path.normpath(file_path), function_name.lower())
-        with MEMORY_BODY_LOCK:
-            cached = MEMORY_BODY_CACHE.get(mem_key)
-        if cached is not None:
-            return cached
-    except ImportError:
-        pass  # func_body_cache not yet available; fall through to regex
-
     if not os.path.isfile(file_path):
         return f"File not found:\n{file_path}"
     # Use the content cache so the file is only read once per session even

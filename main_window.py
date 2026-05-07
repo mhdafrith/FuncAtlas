@@ -43,8 +43,8 @@ from services.analysis import (
 )
 from services.report_worker import ReportCompareWorker
 from services.analysis import BuiltinExtractionWorker
-from services.pre_extract_worker import PreExtractWorker
-import services.func_body_cache as _func_body_cache
+from services.upfront_worker import UpfrontExtractionWorker
+from core.function_cache import FUNCTION_CACHE
 
 # Page builders
 from pages.home import create_home_page
@@ -135,8 +135,6 @@ class ReuseAnalysisWindow(QMainWindow):
         self.con_thread = None
         self.con_worker = None
         self._active_threads: list[QThread] = []  # strong refs to all running threads
-        self._pre_extract_thread = None  # background PreExtractWorker thread
-        self._pre_extract_worker = None
 
         self._report_ext_thread  = None
         self._report_ext_worker  = None
@@ -148,6 +146,13 @@ class ReuseAnalysisWindow(QMainWindow):
         self._report_bases_list  = []
         self._report_total_steps = 0
         self._report_done_steps  = 0
+
+        # ── upfront extraction worker (runs at Submit) ────────────────────────
+        self._upfront_thread  = None
+        self._upfront_worker  = None
+        # Folder paths that have already been cached in this session
+        # {folder_path: 'target'|'reference'}
+        self._cached_folders: dict = {}
 
         self._setup_ui()
         self.apply_styles()
@@ -714,10 +719,12 @@ class ReuseAnalysisWindow(QMainWindow):
         log_user_action("click", "Reset All", extra="user confirmed full reset")
 
         # ── Clear scan cache ──────────────────────────────────────────────────
-        self._stop_pre_extract()
-        _func_body_cache.clear_all()
         with SCAN_CACHE_LOCK:
             SCAN_CACHE.clear()
+
+        # ── Clear function body disk cache ────────────────────────────────────
+        FUNCTION_CACHE.clear()
+        self._cached_folders = {}
 
         # ── Reset all core state ──────────────────────────────────────────────
         self.function_records            = OrderedDict()
@@ -816,9 +823,6 @@ class ReuseAnalysisWindow(QMainWindow):
 
     # ── form clear ────────────────────────────────────────────────────────────
     def clear_reference_form(self):
-        # Stop any running pre-extraction and wipe the body cache
-        self._stop_pre_extract()
-        _func_body_cache.clear_all()
         self.ref_target_field.clear_selection()
         self.ref_bases_field.clear_selection()
         self.ref_function_field.clear_selection()
@@ -829,6 +833,9 @@ class ReuseAnalysisWindow(QMainWindow):
         self.current_function_list_paths = []
         self.current_reference_folders = []
         self.function_records = OrderedDict()
+        # Clear disk cache for this session
+        FUNCTION_CACHE.clear()
+        self._cached_folders = {}
         if hasattr(self, "source_combo"):
             self.source_combo.blockSignals(True)
             self.source_combo.clear()
@@ -1198,21 +1205,43 @@ class ReuseAnalysisWindow(QMainWindow):
         is_target = (source.get("type") == "target")
 
         try:
-            all_records     = scan_source_for_all_functions(self.active_source_root)
+            # ── Try disk cache first (populated at Submit time) ───────────────
+            role = "target" if is_target else "reference"
+            cached_meta = FUNCTION_CACHE.get_meta(source["path"], role)
+            if cached_meta is not None:
+                all_records = OrderedDict(
+                    (fp, info) for fp, info in cached_meta.items()
+                )
+            else:
+                # Fallback: live scan (should rarely happen after Submit)
+                all_records = scan_source_for_all_functions(self.active_source_root)
+
             matched_by_list = OrderedDict()
-            matched_by_ref  = OrderedDict()
             function_filter = getattr(self, "_ref_function_filter", [])
             has_xlsx        = bool(self.current_function_list_paths)  # point 4
 
             if is_target:
                 if has_xlsx:
                     # Point 2: xlsx uploaded -> only show functions that match the list
-                    matched_by_list = match_target_with_function_list(
-                        self.active_source_root, self.current_function_list_paths)
-                    self.function_records = matched_by_list if matched_by_list else all_records
+                    if cached_meta is not None:
+                        # Filter from cache without re-scanning
+                        filter_set = {normalize_name(fn) for fn in function_filter if fn}
+                        if filter_set:
+                            matched_by_list = OrderedDict()
+                            for fp, info in all_records.items():
+                                matched_fns = [fn for fn in info.get("functions", [])
+                                               if normalize_name(fn) in filter_set]
+                                if matched_fns:
+                                    matched_by_list[fp] = dict(info, functions=matched_fns)
+                            self.function_records = matched_by_list if matched_by_list else all_records
+                        else:
+                            self.function_records = all_records
+                    else:
+                        matched_by_list = match_target_with_function_list(
+                            self.active_source_root, self.current_function_list_paths)
+                        self.function_records = matched_by_list if matched_by_list else all_records
                 else:
-                    # Point 1: no xlsx -> show ALL target functions regardless of
-                    # whether they exist in reference folders (reference only affects diff)
+                    # Point 1: no xlsx -> show ALL target functions
                     self.function_records = all_records
             else:
                 # Point 3: reference bases -> always all functions, no filtering
@@ -1234,8 +1263,8 @@ class ReuseAnalysisWindow(QMainWindow):
             self.view_title.setText(source["label"])
             self.view_meta.setText(self.active_source_root)
             self.view_text.setText(
-                "Selected source:\n{}\n{}\n\nLoaded Files: {}\n\n"
-                "Drag the center divider left or right to resize the panes.\n"
+                "Selected source:\\n{}\\n{}\\n\\nLoaded Files: {}\\n\\n"
+                "Drag the center divider left or right to resize the panes.\\n"
                 "Click a function on the left to preview the real body.".format(
                     source["label"], self.active_source_root, len(self.function_records))
             )
@@ -1284,7 +1313,9 @@ class ReuseAnalysisWindow(QMainWindow):
         )
         if target_entry:
             try:
-                target_records = scan_source_for_all_functions(target_entry["path"])
+                # Use cached meta when available
+                cached = FUNCTION_CACHE.get_meta(target_entry["path"], "target")
+                target_records = OrderedDict(cached) if cached else scan_source_for_all_functions(target_entry["path"])
             except Exception:
                 target_records = {}
         else:
@@ -1295,7 +1326,10 @@ class ReuseAnalysisWindow(QMainWindow):
         # {display_name -> {func_name -> [(folder_path, file_path), ...]}}
         ref_index: dict = {}
         for folder in ref_folders:
-            for fp, rinfo in scan_source_for_all_functions(folder).items():
+            # Use cached meta when available
+            cached_ref = FUNCTION_CACHE.get_meta(folder, "reference")
+            ref_records = OrderedDict(cached_ref) if cached_ref else scan_source_for_all_functions(folder)
+            for fp, rinfo in ref_records.items():
                 dn = rinfo["display_name"]
                 ref_index.setdefault(dn, {})
                 for fn in rinfo["functions"]:
@@ -1319,8 +1353,11 @@ class ReuseAnalysisWindow(QMainWindow):
                     best_tgt_body = ""
                     best_ref_body = ""
                     for folder, ref_fp in ref_fns[func_name]:
-                        tgt_body = extract_function_body(file_path, func_name)
-                        ref_body = extract_function_body(ref_fp, func_name)
+                        tgt_body = (FUNCTION_CACHE.get_body(target_entry["path"] if target_entry else file_path,
+                                                             "target", file_path, func_name)
+                                    or extract_function_body(file_path, func_name))
+                        ref_body = (FUNCTION_CACHE.get_body(folder, "reference", ref_fp, func_name)
+                                    or extract_function_body(ref_fp, func_name))
                         t_lines  = [l for l in tgt_body.splitlines() if l.strip()]
                         r_lines  = [l for l in ref_body.splitlines() if l.strip()]
                         ratio    = _difflib.SequenceMatcher(None, t_lines, r_lines).ratio()
@@ -1429,7 +1466,16 @@ class ReuseAnalysisWindow(QMainWindow):
         elif payload["type"] == "function":
             fp   = payload["file_path"]
             name = payload["function_name"]
-            body = extract_function_body(fp, name)
+            # Try cached .txt first
+            source = next(
+                (s for s in getattr(self, "available_sources", [])
+                 if s["path"] == self.active_source_root),
+                None,
+            )
+            role = "target" if (source and source.get("type") == "target") else "reference"
+            body = FUNCTION_CACHE.get_body(self.active_source_root, role, fp, name)
+            if body is None:
+                body = extract_function_body(fp, name)
             self.current_function_name = name
             self.current_function_file = fp
             self.current_function_body = body
@@ -1477,8 +1523,15 @@ class ReuseAnalysisWindow(QMainWindow):
                         if "src" in parts and parts.index("src") > 0
                         else os.path.basename(base_path))
 
-        target_code = (extract_function_body(target_file, function_name)
-                       if target_file and os.path.isfile(target_file) else "")
+        target_entry_obj = next(
+            (s for s in getattr(self, "available_sources", []) if s.get("type") == "target"),
+            None,
+        )
+        target_code = ""
+        if target_file and os.path.isfile(target_file):
+            tgt_folder = target_entry_obj["path"] if target_entry_obj else self.active_source_root
+            target_code = (FUNCTION_CACHE.get_body(tgt_folder, "target", target_file, function_name)
+                           or extract_function_body(target_file, function_name))
 
         def _make_ref_label(folder_path):
             norm = os.path.normpath(folder_path).split(os.sep)
@@ -1648,8 +1701,10 @@ class ReuseAnalysisWindow(QMainWindow):
         else:
             for folder_path, ref_fp in ref_copies:
                 ref_label = _make_ref_label(folder_path)
-                ref_code  = (extract_function_body(ref_fp, function_name)
-                             if ref_fp and os.path.isfile(ref_fp) else "")
+                ref_code  = ""
+                if ref_fp and os.path.isfile(ref_fp):
+                    ref_code = (FUNCTION_CACHE.get_body(folder_path, "reference", ref_fp, function_name)
+                                or extract_function_body(ref_fp, function_name))
                 table = _build_table(target_code, ref_code, target_label, ref_label, diff_tag)
                 tab_title = "{} vs {}".format(target_label, ref_label)
                 self.diff_tabs.addTab(table, tab_title)
@@ -1916,109 +1971,107 @@ class ReuseAnalysisWindow(QMainWindow):
             )
             return
 
-        self.ref_submit_btn.start_progress("Submitting …")
+        self.ref_submit_btn.start_progress("Extracting …")
         from PySide6.QtWidgets import QApplication
         QApplication.processEvents()
 
         try:
             self._reset_view_and_diff()
 
-            self.current_target_folders = ref_folders
+            # ── Clear old cache before a fresh extraction ─────────────────
+            FUNCTION_CACHE.clear()
+            self._cached_folders = {}
 
+            self.current_target_folders = ref_folders
             self._ref_function_filter = parse_function_list_files(function_list) if function_list else []
 
             entries = [self.build_source_entry("target", target_root)]
             for folder in ref_folders:
                 entries.append(self.build_source_entry("reference", folder))
-            self.register_sources(entries, function_list, ref_folders)
 
             for f in function_list:
                 log_file_upload("file", f, field="Function List")
+
+            # ── Build bases list for upfront extraction worker ────────────
+            bases = [{"folder_path": target_root, "role": "target",
+                      "label": entries[0]["label"]}]
+            for i, folder in enumerate(ref_folders, 1):
+                bases.append({"folder_path": folder, "role": "reference",
+                               "label": entries[i]["label"]})
+
+            fn_filter_set = {normalize_name(fn) for fn in self._ref_function_filter if fn}
+
+            # Store these for use after extraction completes
+            self._pending_entries        = entries
+            self._pending_function_list  = function_list
+            self._pending_ref_folders    = ref_folders
+
+            # ── Launch upfront extraction worker ──────────────────────────
+            self._upfront_worker = UpfrontExtractionWorker(bases, fn_filter_set or None)
+            self._upfront_thread = QThread()
+            self._upfront_worker.moveToThread(self._upfront_thread)
+            self._upfront_thread.started.connect(self._upfront_worker.run)
+            self._upfront_worker.started.connect(
+                lambda lbl: self.ref_submit_btn.start_progress("Running …")
+            )
+            self._upfront_worker.finished.connect(self._on_upfront_done)
+            self._upfront_worker.error.connect(self._on_upfront_error)
+            self._upfront_worker.finished.connect(self._upfront_thread.quit)
+            self._upfront_worker.error.connect(self._upfront_thread.quit)
+            self._upfront_worker.finished.connect(self._upfront_worker.deleteLater)
+            self._upfront_thread.finished.connect(self._upfront_thread.deleteLater)
+            self._upfront_thread.start()
+
+        except Exception as e:
+            self.ref_submit_btn.stop_progress("Submit")
+            QMessageBox.critical(self, "Submit Error", str(e))
+
+    def _on_upfront_done(self, results: dict):
+        """Called when the upfront extraction worker finishes successfully."""
+        try:
+            self.ref_submit_btn.stop_progress("Submit")
+
+            entries       = self._pending_entries
+            function_list = self._pending_function_list
+            ref_folders   = self._pending_ref_folders
+
+            # Record which folders are now cached (use entries list for correct role)
+            for entry in entries:
+                fp   = normalize_path(entry["path"])
+                role = "target" if entry.get("type") == "target" else "reference"
+                self._cached_folders[fp] = role
+
+            target_root = entries[0]["path"] if entries else ""
+            self.register_sources(entries, function_list, ref_folders)
+
             _log.info("submit_reference success: target=%s, refs=%d, fn_files=%d, sources=%d",
                       target_root, len(ref_folders), len(function_list), len(entries))
 
             ref_text = "\n".join(ref_folders) if ref_folders else "No reference folders selected"
             fn_text  = "\n".join(function_list) if function_list else "No function list selected"
+            total_fns = sum(
+                sum(len(v.get("functions", [])) for v in data.get("meta", {}).values())
+                for data in results.values()
+            )
             QMessageBox.information(self, "Success",
                 f"Reference data loaded successfully.\n\nTarget Base Folder:\n{target_root}\n\n"
                 f"Reference Base Folders:\n{ref_text}\n\nFunction List:\n{fn_text}\n\n"
-                f"Dropdown Sources: {len(entries)}")
+                f"Dropdown Sources: {len(entries)}\n"
+                f"Functions cached to disk: {total_fns}")
 
-            # ── Launch background pre-extraction so View/Report/Complexity
-            # pages don't need to re-scan the same folders later ───────────
-            self._launch_pre_extract(target_root, ref_folders, self._ref_function_filter)
         except Exception as e:
             QMessageBox.critical(self, "Submit Error", str(e))
         finally:
-            self.ref_submit_btn.stop_progress("Submit")
+            self._upfront_thread = None
+            self._upfront_worker = None
 
-    # ── pre-extraction launcher ─────────────────────────────────
-    def _launch_pre_extract(self, target_folder: str, ref_folders: list, function_filter: list):
-        """Launch PreExtractWorker in background after submit_reference.
-
-        Stops any existing pre-extraction, clears the disk cache for these
-        folders (ensures a fresh extract when bases change), then starts a new
-        background thread that writes every function body to disk so that:
-          • changing the source combo in View is instant (SCAN_CACHE hit)
-          • Report generation reuses .txt files (no re-scan)
-          • Complexity analysis reads bodies from MEMORY_BODY_CACHE (O(1))
-        """
-        # Cancel any in-flight pre-extraction (user re-submitted with new bases)
-        self._stop_pre_extract()
-
-        # Clear existing disk cache for these folders so stale data cannot
-        # accumulate.  The full MEMORY_BODY_CACHE is also flushed so the new
-        # extraction is stored cleanly.
-        all_folders = [target_folder] + list(ref_folders)
-        _func_body_cache.clear_for(all_folders)
-
-        folders = [{"path": target_folder, "role": "target",
-                    "label": f"Target Base - {os.path.basename(target_folder)}"}]
-        for rf in ref_folders:
-            folders.append({"path": rf, "role": "reference",
-                            "label": f"Reference Base - {os.path.basename(rf)}"})
-
-        worker = PreExtractWorker(folders, function_filter=function_filter)
-        thread = QThread()
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.finished.connect(thread.quit)
-        worker.error.connect(thread.quit)
-        worker.finished.connect(worker.deleteLater)
-        worker.error.connect(worker.deleteLater)
-        thread.finished.connect(thread.deleteLater)
-
-        # Show subtle feedback in the window title during extraction
-        original_title = self.windowTitle()
-        worker.folder_started.connect(
-            lambda lbl: self.setWindowTitle(f"FuncAtlas  —  Indexing {lbl} …"))
-        worker.progress.connect(
-            lambda pct, msg: self.setWindowTitle(
-                f"FuncAtlas  —  Indexing {pct}%  {msg}" if pct < 100
-                else original_title))
-        worker.finished.connect(lambda: self.setWindowTitle(original_title))
-        worker.error.connect(lambda _: self.setWindowTitle(original_title))
-
-        self._pre_extract_worker = worker
-        self._pre_extract_thread = thread
-        thread.start()
-        _log.info("_launch_pre_extract: started for %d folder(s)", len(folders))
-
-    def _stop_pre_extract(self):
-        """Cancel and clean up any running pre-extraction thread."""
-        if self._pre_extract_worker is not None:
-            try:
-                self._pre_extract_worker.cancel()
-            except Exception:
-                pass
-        if self._pre_extract_thread is not None:
-            try:
-                self._pre_extract_thread.quit()
-                self._pre_extract_thread.wait(2000)
-            except Exception:
-                pass
-        self._pre_extract_worker = None
-        self._pre_extract_thread = None
+    def _on_upfront_error(self, message: str):
+        """Called when the upfront extraction worker fails."""
+        self.ref_submit_btn.stop_progress("Submit")
+        self._upfront_thread = None
+        self._upfront_worker = None
+        if message != "__CANCELLED__":
+            QMessageBox.critical(self, "Extraction Error", message)
 
     # ── submit consolidated ───────────────────────────────────────────────────
     def submit_consolidated(self):
@@ -3495,9 +3548,14 @@ class ReuseAnalysisWindow(QMainWindow):
                     thread.quit()
                     thread.wait(2000)
 
-        for t_attr in ("_report_ext_thread", "_report_cmp_thread", "con_thread"):
+        for t_attr in ("_report_ext_thread", "_report_cmp_thread", "con_thread", "_upfront_thread"):
             t = getattr(self, t_attr, None)
             if t and t.isRunning():
+                # Signal worker to cancel before quitting thread
+                w_attr = t_attr.replace("_thread", "_worker")
+                w = getattr(self, w_attr, None)
+                if w and hasattr(w, "cancel"):
+                    w.cancel()
                 t.quit()
                 t.wait(3000)
 

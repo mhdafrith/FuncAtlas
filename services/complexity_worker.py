@@ -23,6 +23,17 @@ from core.utils import (
     normalize_path, normalize_name, iter_source_files,
     detect_functions_in_file, extract_function_body,
 )
+from core.function_cache import FUNCTION_CACHE
+
+
+def _cached_body(source_folder: str, file_path: str, fn_name: str) -> str:
+    """Return cached body for (file_path, fn_name) trying target then reference.
+    Falls back to live extraction when cache miss."""
+    for role in ("target", "reference"):
+        body = FUNCTION_CACHE.get_body(source_folder, role, file_path, fn_name)
+        if body is not None:
+            return body
+    return extract_function_body(file_path, fn_name)
 
 
 # ── Construct patterns (C language) ──────────────────────────────────────────
@@ -205,74 +216,6 @@ class ComplexityAnalysisWorker(QObject):
         os.makedirs(body_dir, exist_ok=True)
         self.log.emit(f"📁 Output folder: {self.output_root}")
 
-        # ── Fast path: reuse pre-extracted cache when available ──────────────────────────────────────────
-        try:
-            from services.func_body_cache import (
-                is_ready as _cache_is_ready,
-                load_index as _cache_load_index,
-                cache_dir_for as _cache_dir_for,
-            )
-            _have_cache = True
-        except ImportError:
-            _have_cache = False
-
-        if _have_cache and _cache_is_ready(self.source_folder):
-            self.log.emit("⚡ Using pre-extracted function body cache …")
-            pre_index    = _cache_load_index(self.source_folder)
-            pre_dir      = _cache_dir_for(self.source_folder)
-            total_items  = max(1, len(pre_index))
-            all_records  = []
-            import shutil as _shutil
-
-            for idx, (index_key, meta) in enumerate(pre_index.items()):
-                pct = int((idx / total_items) * 85)
-                fn_name   = meta.get("display_name", "")
-                src_file  = meta.get("source_file", "")
-                self.progress.emit(pct, f"Analysing {fn_name} …")
-
-                txt_path = os.path.join(pre_dir, meta.get("txt_name", ""))
-                if not os.path.isfile(txt_path):
-                    continue
-                try:
-                    with open(txt_path, "r", encoding="utf-8", errors="replace") as fh:
-                        body = fh.read()
-                except Exception:
-                    body = extract_function_body(src_file, fn_name)
-
-                # Copy to local function_body/ so output folder is self-contained
-                dst = os.path.join(body_dir, meta["txt_name"])
-                try:
-                    _shutil.copy2(txt_path, dst)
-                except Exception:
-                    try:
-                        with open(dst, "w", encoding="utf-8", errors="ignore") as fh:
-                            fh.write(body)
-                    except Exception:
-                        pass
-
-                counts   = count_constructs(body)
-                rel_path = os.path.relpath(src_file, self.source_folder) if src_file else ""
-                file_name= os.path.basename(src_file) if src_file else ""
-                score    = sum(counts.get(cn, 0) * self.weights.get(cn, 1)
-                               for cn, _ in CONSTRUCTS)
-                level    = complexity_level(score, self.bands)
-                all_records.append({
-                    "file_path":  rel_path,
-                    "file_name":  file_name,
-                    "function":   fn_name,
-                    "counts":     counts,
-                    "score":      score,
-                    "level":      level,
-                })
-
-            self.progress.emit(90, "Building Excel …")
-            out_excel = self._write_excel(all_records)
-            self.progress.emit(100, "Done")
-            self.log.emit(f"✅ Report saved: {out_excel}")
-            self.finished.emit(out_excel)
-            return  # ← done via cache; skip slow scan below
-
-        # ── Slow path: full scan (no pre-cache available) ──────────────────────────────────
         # Scan all source files
         file_entries = list(iter_source_files(self.source_folder))
         total_files  = len(file_entries)
@@ -294,7 +237,7 @@ class ComplexityAnalysisWorker(QObject):
             rel_path = os.path.join(os.path.basename(self.source_folder), os.path.relpath(full_path, self.source_folder))
 
             for fn_name in functions:
-                body = extract_function_body(full_path, fn_name)
+                body = _cached_body(self.source_folder, full_path, fn_name)
 
                 # Save .txt
                 safe_name = re.sub(r'[\\/:*?"<>|]', '_', f"{file_name}__{fn_name}")
@@ -677,7 +620,7 @@ class ComplexityAppendWorker(QObject):
                 continue
             for fn_name in functions:
                 fn_key = normalize_name(fn_name)
-                body   = extract_function_body(full_path, fn_name)
+                body   = _cached_body(self.source_folder, full_path, fn_name)
                 body_lookup[(fn_key, full_path.lower())] = body
                 body_fallback.setdefault(fn_key, []).append((full_path, body))
 
