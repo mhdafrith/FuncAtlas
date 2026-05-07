@@ -43,6 +43,8 @@ from services.analysis import (
 )
 from services.report_worker import ReportCompareWorker
 from services.analysis import BuiltinExtractionWorker
+from services.pre_extract_worker import PreExtractWorker
+import services.func_body_cache as _func_body_cache
 
 # Page builders
 from pages.home import create_home_page
@@ -133,6 +135,8 @@ class ReuseAnalysisWindow(QMainWindow):
         self.con_thread = None
         self.con_worker = None
         self._active_threads: list[QThread] = []  # strong refs to all running threads
+        self._pre_extract_thread = None  # background PreExtractWorker thread
+        self._pre_extract_worker = None
 
         self._report_ext_thread  = None
         self._report_ext_worker  = None
@@ -710,6 +714,8 @@ class ReuseAnalysisWindow(QMainWindow):
         log_user_action("click", "Reset All", extra="user confirmed full reset")
 
         # ── Clear scan cache ──────────────────────────────────────────────────
+        self._stop_pre_extract()
+        _func_body_cache.clear_all()
         with SCAN_CACHE_LOCK:
             SCAN_CACHE.clear()
 
@@ -810,6 +816,9 @@ class ReuseAnalysisWindow(QMainWindow):
 
     # ── form clear ────────────────────────────────────────────────────────────
     def clear_reference_form(self):
+        # Stop any running pre-extraction and wipe the body cache
+        self._stop_pre_extract()
+        _func_body_cache.clear_all()
         self.ref_target_field.clear_selection()
         self.ref_bases_field.clear_selection()
         self.ref_function_field.clear_selection()
@@ -1934,10 +1943,82 @@ class ReuseAnalysisWindow(QMainWindow):
                 f"Reference data loaded successfully.\n\nTarget Base Folder:\n{target_root}\n\n"
                 f"Reference Base Folders:\n{ref_text}\n\nFunction List:\n{fn_text}\n\n"
                 f"Dropdown Sources: {len(entries)}")
+
+            # ── Launch background pre-extraction so View/Report/Complexity
+            # pages don't need to re-scan the same folders later ───────────
+            self._launch_pre_extract(target_root, ref_folders, self._ref_function_filter)
         except Exception as e:
             QMessageBox.critical(self, "Submit Error", str(e))
         finally:
             self.ref_submit_btn.stop_progress("Submit")
+
+    # ── pre-extraction launcher ─────────────────────────────────
+    def _launch_pre_extract(self, target_folder: str, ref_folders: list, function_filter: list):
+        """Launch PreExtractWorker in background after submit_reference.
+
+        Stops any existing pre-extraction, clears the disk cache for these
+        folders (ensures a fresh extract when bases change), then starts a new
+        background thread that writes every function body to disk so that:
+          • changing the source combo in View is instant (SCAN_CACHE hit)
+          • Report generation reuses .txt files (no re-scan)
+          • Complexity analysis reads bodies from MEMORY_BODY_CACHE (O(1))
+        """
+        # Cancel any in-flight pre-extraction (user re-submitted with new bases)
+        self._stop_pre_extract()
+
+        # Clear existing disk cache for these folders so stale data cannot
+        # accumulate.  The full MEMORY_BODY_CACHE is also flushed so the new
+        # extraction is stored cleanly.
+        all_folders = [target_folder] + list(ref_folders)
+        _func_body_cache.clear_for(all_folders)
+
+        folders = [{"path": target_folder, "role": "target",
+                    "label": f"Target Base - {os.path.basename(target_folder)}"}]
+        for rf in ref_folders:
+            folders.append({"path": rf, "role": "reference",
+                            "label": f"Reference Base - {os.path.basename(rf)}"})
+
+        worker = PreExtractWorker(folders, function_filter=function_filter)
+        thread = QThread()
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(thread.quit)
+        worker.error.connect(thread.quit)
+        worker.finished.connect(worker.deleteLater)
+        worker.error.connect(worker.deleteLater)
+        thread.finished.connect(thread.deleteLater)
+
+        # Show subtle feedback in the window title during extraction
+        original_title = self.windowTitle()
+        worker.folder_started.connect(
+            lambda lbl: self.setWindowTitle(f"FuncAtlas  —  Indexing {lbl} …"))
+        worker.progress.connect(
+            lambda pct, msg: self.setWindowTitle(
+                f"FuncAtlas  —  Indexing {pct}%  {msg}" if pct < 100
+                else original_title))
+        worker.finished.connect(lambda: self.setWindowTitle(original_title))
+        worker.error.connect(lambda _: self.setWindowTitle(original_title))
+
+        self._pre_extract_worker = worker
+        self._pre_extract_thread = thread
+        thread.start()
+        _log.info("_launch_pre_extract: started for %d folder(s)", len(folders))
+
+    def _stop_pre_extract(self):
+        """Cancel and clean up any running pre-extraction thread."""
+        if self._pre_extract_worker is not None:
+            try:
+                self._pre_extract_worker.cancel()
+            except Exception:
+                pass
+        if self._pre_extract_thread is not None:
+            try:
+                self._pre_extract_thread.quit()
+                self._pre_extract_thread.wait(2000)
+            except Exception:
+                pass
+        self._pre_extract_worker = None
+        self._pre_extract_thread = None
 
     # ── submit consolidated ───────────────────────────────────────────────────
     def submit_consolidated(self):
