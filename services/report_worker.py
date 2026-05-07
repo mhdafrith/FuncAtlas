@@ -414,6 +414,16 @@ class ReportCompareWorker(QObject):
                         ref_map[idx_key] = txt_path
                 ref_file_maps.append(ref_map)
 
+            # Pre-build display_name → [(idx_key, rv)] index per ref so the
+            # O(N) full-scan fallback in _compare_one becomes O(1).
+            ref_display_indexes = []
+            for ri in range(len(ref_indexes)):
+                dn_idx: dict = {}
+                for rk, rv in ref_indexes[ri].items():
+                    key = normalize_name(rv.get('display_name', ''))
+                    dn_idx.setdefault(key, []).append((rk, rv))
+                ref_display_indexes.append(dn_idx)
+
             items       = sorted(target_files.items())
             rows        = [None] * len(items)
             total       = len(items)
@@ -445,22 +455,22 @@ class ReportCompareWorker(QObject):
                         ref_path = ref_map.get(fn_lower)
                         r_info   = ref_indexes[ri].get(fn_lower)
 
-                    # 3. Scan all entries for matching display_name (new-format
+                    # 3. Scan display_name index for matching functions (new-format
                     #    refs where same fn exists in multiple files) — best score wins
                     if ref_path is None:
                         best_pct_scan  = -1
                         best_path_scan = None
                         best_info_scan = None
-                        for rk, rv in ref_indexes[ri].items():
-                            if normalize_name(rv.get('display_name', '')) == normalize_name(func_display):
-                                candidate_path = ref_map.get(rk)
-                                if candidate_path and os.path.isfile(candidate_path):
-                                    candidate_text = self._read_text(candidate_path)
-                                    candidate_pct  = self._match_percent(target_text, candidate_text)
-                                    if candidate_pct > best_pct_scan:
-                                        best_pct_scan  = candidate_pct
-                                        best_path_scan = candidate_path
-                                        best_info_scan = rv
+                        fn_norm = normalize_name(func_display)
+                        for rk, rv in ref_display_indexes[ri].get(fn_norm, []):
+                            candidate_path = ref_file_maps[ri].get(rk)
+                            if candidate_path and os.path.isfile(candidate_path):
+                                candidate_text = self._read_text(candidate_path)
+                                candidate_pct  = self._match_percent(target_text, candidate_text)
+                                if candidate_pct > best_pct_scan:
+                                    best_pct_scan  = candidate_pct
+                                    best_path_scan = candidate_path
+                                    best_info_scan = rv
                         if best_path_scan is not None:
                             ref_path = best_path_scan
                             r_info   = best_info_scan

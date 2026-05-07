@@ -90,6 +90,30 @@ def read_source_file(file_path: str) -> str:
 SCAN_CACHE: dict = {}
 SCAN_CACHE_LOCK = Lock()
 
+# ── File content cache ───────────────────────────────────────────────────────
+# Keyed by (file_path, mtime_ns, size) — same signature as SCAN_CACHE.
+# Eliminates redundant disk reads when extract_function_body() is called
+# multiple times for different functions in the same file.
+FILE_CONTENT_CACHE: dict = {}
+FILE_CONTENT_CACHE_LOCK = Lock()
+
+
+def read_source_file_cached(file_path: str) -> str:
+    """Like read_source_file() but caches the result for the lifetime of the
+    process.  Multiple calls for the same (unchanged) file return the cached
+    string without touching the disk again."""
+    sig = _file_signature(file_path)
+    if sig is None:
+        return ""
+    with FILE_CONTENT_CACHE_LOCK:
+        cached = FILE_CONTENT_CACHE.get(sig)
+    if cached is not None:
+        return cached
+    text = read_source_file(file_path)
+    with FILE_CONTENT_CACHE_LOCK:
+        FILE_CONTENT_CACHE[sig] = text
+    return text
+
 
 # ── Path helpers ─────────────────────────────────────────────────────────────
 def normalize_path(path_str: str) -> str:
@@ -395,9 +419,24 @@ def detect_functions_in_file(file_path: str) -> list:
 
 # ── Function body extractor ──────────────────────────────────────────────────
 def extract_function_body(file_path: str, function_name: str) -> str:
+    # ── Fast path: check in-memory body cache populated by PreExtractWorker ──
+    # Import lazily to avoid circular imports at module load time.
+    try:
+        from services.func_body_cache import MEMORY_BODY_CACHE, MEMORY_BODY_LOCK
+        mem_key = (os.path.normpath(file_path), function_name.lower())
+        with MEMORY_BODY_LOCK:
+            cached = MEMORY_BODY_CACHE.get(mem_key)
+        if cached is not None:
+            return cached
+    except ImportError:
+        pass  # func_body_cache not yet available; fall through to regex
+
     if not os.path.isfile(file_path):
         return f"File not found:\n{file_path}"
-    text = read_source_file(file_path)
+    # Use the content cache so the file is only read once per session even
+    # when this function is called many times for different functions in the
+    # same file.  This is the primary fix for the 15-20 min reference scan.
+    text = read_source_file_cached(file_path)
     if not text:
         return f"Could not read file:\n{file_path}"
 
